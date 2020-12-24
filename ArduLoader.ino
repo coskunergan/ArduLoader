@@ -9,8 +9,8 @@
 #define FAIL_BLINK_PERIDOD  5 // 50mS
 #define LOAD_BLINK_PERIDOD  50 // 500mS
 
-#define CLK_PIN  2
-#define DTA_PIN  3
+#define CLK_PIN  3
+#define DTA_PIN  2
 #define VCC_PIN  4
 
 #define CLK_HIGH()  (FastGPIO::Pin<CLK_PIN>::setOutputValueHigh())
@@ -38,12 +38,7 @@ typedef enum
 } Led_State_t;
 
 //---------------------------------
-
-extern const PROGMEM char Array[];
-
-
-const char Array2[] PROGMEM = "0101010101010";
-
+extern const PROGMEM char Data1[], Data2[], Data3[];
 uint8_t incomingByte;
 uint8_t UartTimeout;
 uint8_t LedTimeout;
@@ -101,40 +96,119 @@ void ISR_Time_Tick(void) // per 10mS
 /***********************************************************/
 void SendPreamble(void)
 {
-  uint8_t i, j;
-
-  for (i = 0; i < 250; i++)
+  int i, j;
+  noInterrupts();
+  DTA_HIGH();
+  for (j = 0; j < 30; j++)
   {
-    DTA_TOGGLE(); // 750Hz
-    for (j = 0; j < 59; j++)
+    CLK_TOGGLE();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    delayMicroseconds(11); // 45KHz
+  }  
+  VCC_HIGH();
+  for (j = 0; j < 30; j++)
+  {
+    CLK_TOGGLE();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    delayMicroseconds(11); // 45KHz
+  }       
+  for (i = 0; i < 315; i++)
+  {
+    DTA_TOGGLE(); // 750Hz   
+    for (j = 0; j < 60; j++)
     {
       CLK_TOGGLE();
-      delayMicroseconds(12); // 45KHz
+      _NOP();
+      _NOP();
+      _NOP();
+      _NOP();
+      _NOP();
+      _NOP();
+      _NOP();
+      _NOP();
+      _NOP();
+      _NOP();
+      _NOP();
+      _NOP();
+      _NOP();
+      _NOP();
+      delayMicroseconds(11); // 45KHz
     }
-    VCC_HIGH();
   }
   DTA_LOW();
+  for (j = 0; j < 120; j++)
+  {
+    CLK_TOGGLE();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    _NOP();
+    delayMicroseconds(11); // 45KHz
+  }
   CLK_LOW();
+  interrupts();
 }
 /***********************************************************/
-void SendArray(void)
+void SendData(const char *databuffer)
 {
   int i;
   char character;
   do
   {
     CLK_LOW();
-    character = pgm_read_byte_near(Array + i);
+    character = pgm_read_byte_near(databuffer + i);
     i++;
     if (character == '0')
     {
       DTA_LOW();
+      NOP();
+      NOP();
+      NOP();
       NOP();
       CLK_HIGH();
     }
     else if (character  == '1')
     {
       DTA_HIGH();
+      NOP();
+      NOP();
+      NOP();
       NOP();
       CLK_HIGH();
     }
@@ -168,13 +242,17 @@ void setup()
   TimeoutFlag = false;
   Led_State = LED_OFF;
 
-  VCC_LOW();
-
-  delay(1000);
-  SendPreamble();
-  SendArray();
   delay(500);
+  SendPreamble();
+  delay(1);
+  SendData(Data1);
+  delay(30);
+  SendData(Data2);
+  delay(30);
+  SendData(Data3);
   VCC_LOW();
+  delay(500);
+  VCC_HIGH();
 }
 /***********************************************************/
 void loop()
