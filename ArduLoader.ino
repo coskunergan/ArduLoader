@@ -4,7 +4,7 @@
 #include <CRC32.h>
 #include "TimerOne.h"
 
-#define UART_TIMEOUT 10 // 100mS
+#define STREAM_TIMEOUT 50 // 500mS
 
 #define FAIL_BLINK_PERIDOD  5 // 50mS
 #define LOAD_BLINK_PERIDOD  50 // 500mS
@@ -27,36 +27,56 @@
 
 #define NOP()  __asm__ __volatile__ ("nop\n\t");
 
-CRC32 crc;
-
 typedef enum
 {
   LED_OFF,
   LED_ON,
   LED_FAIL,
-  LED_LOAD
+  LED_BURN
 } Led_State_t;
 
+typedef enum
+{
+  IDLE,
+  BURN,
+  CHECK
+} Procces_State_t;
+
+typedef enum
+{
+  WAIT,
+  DOWNLOADING,
+  TIMEOUT
+} Stream_State_t;
+
+const char BOOT_KEY[] = "BOOT";
+
 //---------------------------------
-extern const PROGMEM char Data1[], Data2[], Data3[];
+extern const PROGMEM char WriteStart[], WriteSeperate[], WriteFinish[], WriteInitalizeData1[], WriteInitalizeData2[], WriteTestData[];
+CRC32 crc;
 uint8_t incomingByte;
-uint8_t UartTimeout;
+uint8_t StreamTimeout;
 uint8_t LedTimeout;
-bool TimeoutFlag;
 Led_State_t Led_State;
-uint16_t bytes;
-uint32_t crc32;
+Procces_State_t Procces_State;
+Stream_State_t Stream_State;
+uint32_t image_length;
+uint8_t BurnChapter;
+uint8_t StreamBuffer[64];
+bool pageDone;
+bool incomingDone;
+uint8_t WriteStep;
 /***********************************************************/
 /***********************************************************/
 /***********************************************************/
 void ISR_Time_Tick(void) // per 10mS
 {
   //----------------------
-  if (UartTimeout > 0)
+  if (StreamTimeout > 0)
   {
-    if (--UartTimeout == 0)
+    if (--StreamTimeout == 0)
     {
-      TimeoutFlag = true;
+      Stream_State = TIMEOUT;
     }
   }
   //-----------------------
@@ -79,7 +99,7 @@ void ISR_Time_Tick(void) // per 10mS
         LedTimeout--;
       }
       break;
-    case LED_LOAD:
+    case LED_BURN:
       if (LedTimeout == 0)
       {
         LedTimeout = LOAD_BLINK_PERIDOD;
@@ -117,7 +137,7 @@ void SendPreamble(void)
     _NOP();
     _NOP();
     delayMicroseconds(11); // 45KHz
-  }  
+  }
   VCC_HIGH();
   for (j = 0; j < 30; j++)
   {
@@ -137,10 +157,10 @@ void SendPreamble(void)
     _NOP();
     _NOP();
     delayMicroseconds(11); // 45KHz
-  }       
+  }
   for (i = 0; i < 315; i++)
   {
-    DTA_TOGGLE(); // 750Hz   
+    DTA_TOGGLE(); // 750Hz
     for (j = 0; j < 60; j++)
     {
       CLK_TOGGLE();
@@ -201,11 +221,19 @@ void SendData(const char *databuffer)
       NOP();
       NOP();
       NOP();
+      NOP();
+      NOP();
+      NOP();
+      NOP();
       CLK_HIGH();
     }
     else if (character  == '1')
     {
       DTA_HIGH();
+      NOP();
+      NOP();
+      NOP();
+      NOP();
       NOP();
       NOP();
       NOP();
@@ -224,6 +252,140 @@ void SendData(const char *databuffer)
 
 }
 /***********************************************************/
+void LoaderHandler(void)
+{
+  switch (Procces_State)
+  {
+    case IDLE:
+      WriteStep = 0;
+      break;
+    case BURN:
+      switch (WriteStep++)
+      {
+        case 0:
+          SendPreamble();
+          delay(1);
+          SendData(WriteInitalizeData1);
+          delay(32);
+          SendData(WriteInitalizeData2);
+          delay(30);
+          SendData(WriteTestData);
+          break;
+        case 1:
+          SendData(WriteSeperate);
+          break;
+        case 2:
+          SendData(WriteTestData);
+          break;
+        case 3:
+          SendData(WriteFinish);
+          VCC_LOW();
+          Procces_State = CHECK;
+          break;
+      }
+      break;
+    case CHECK:
+      Procces_State = IDLE;
+      break;
+  }
+}
+/***********************************************************/
+void DataHandler(void)
+{
+  static uint8_t byte_counter = 0;
+  static uint32_t crc32, image_length, total_counter;
+
+  StreamTimeout = STREAM_TIMEOUT;
+
+  switch (Stream_State)
+  {
+    case WAIT:
+      switch (byte_counter++)
+      {
+        case 0:
+        case 1:
+        case 2:
+        case 3:
+          if (incomingByte != BOOT_KEY[byte_counter-1])
+          {
+            byte_counter=0;
+          }
+          break;
+        case 4:
+          crc32 = incomingByte;
+          break;
+        case 5:
+          crc32 |= ((uint32_t)incomingByte << 8);
+          break;
+        case 6:
+          crc32 |= ((uint32_t)incomingByte << 16);
+          break;
+        case 7:
+          crc32 |= ((uint32_t)incomingByte << 24);
+          break;
+        case 8:
+          image_length = incomingByte;
+          break;
+        case 9:
+          image_length |= ((uint32_t)incomingByte << 8);
+          break;
+        case 10:
+          image_length |= ((uint32_t)incomingByte << 16);
+          break;
+        case 11:
+          image_length |= ((uint32_t)incomingByte << 24);
+          break;
+        case 12:
+          Procces_State = (Procces_State_t)incomingByte;
+          switch (Procces_State)
+          {
+            case BURN:
+              Stream_State = DOWNLOADING;
+              break;
+            case CHECK:
+              break;
+          }
+          crc.reset();
+          byte_counter = 0;
+          total_counter = 0;
+          break;
+      }
+      break;
+    case DOWNLOADING:
+      crc.update(incomingByte);
+      StreamBuffer[byte_counter] = incomingByte;
+      byte_counter++;
+      total_counter++;
+      if (total_counter >= image_length)
+      {
+        if (crc32 != crc.finalize())
+        {
+          Led_State = LED_FAIL;
+          byte_counter = 0;
+          Stream_State = WAIT;
+        }
+        else
+        {
+          while (byte_counter < 64)
+          {
+            StreamBuffer[byte_counter++] = 0xFF; // padding
+          }
+        }
+      }
+      if (byte_counter >= 64)
+      {
+        byte_counter = 0;
+        pageDone = true;
+      }
+      break;
+    case TIMEOUT:
+      Led_State = LED_OFF;
+      byte_counter = 0;
+      Stream_State = WAIT;
+      break;
+  }
+}
+/***********************************************************/
 void setup()
 {
   pinMode(LED_BUILTIN, OUTPUT);
@@ -236,40 +398,23 @@ void setup()
   Timer1.initialize(10000); // per 10mS
   Timer1.attachInterrupt(ISR_Time_Tick);
 
-  bytes = 0;
-  UartTimeout = 0;
+  StreamTimeout = 0;
   LedTimeout = 0;
-  TimeoutFlag = false;
   Led_State = LED_OFF;
-
-  delay(500);
-  SendPreamble();
-  delay(1);
-  SendData(Data1);
-  delay(30);
-  SendData(Data2);
-  delay(30);
-  SendData(Data3);
-  VCC_LOW();
-  delay(500);
-  VCC_HIGH();
+  Procces_State = IDLE;
+  Stream_State=WAIT;
+  pageDone = false;
+  incomingDone = false;
 }
 /***********************************************************/
 void loop()
 {
-  if (TimeoutFlag == true)
+  if (incomingDone)
   {
-    TimeoutFlag = false;
-    bytes = 0;
-    if (crc32 == crc.finalize())
-    {
-      Led_State = LED_ON;
-    }
-    else
-    {
-      Led_State = LED_FAIL;
-    }
+    incomingDone = false;
+    DataHandler();
   }
+  LoaderHandler();
 }
 /***********************************************************/
 void serialEvent()
@@ -277,27 +422,7 @@ void serialEvent()
   while (Serial.available())
   {
     incomingByte = Serial.read();
-    UartTimeout = UART_TIMEOUT;
-    Led_State = LED_LOAD;
-    switch (bytes++)
-    {
-      case 0:
-        crc32 = incomingByte;
-        break;
-      case 1:
-        crc32 |= ((uint32_t)incomingByte << 8);
-        break;
-      case 2:
-        crc32 |= ((uint32_t)incomingByte << 16);
-        break;
-      case 3:
-        crc32 |= ((uint32_t)incomingByte << 24);
-        crc.reset();
-        break;
-      default:
-        crc.update(incomingByte);
-        break;
-    }
+    incomingDone = true;
   }
 }
 /***********************************************************/
