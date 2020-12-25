@@ -4,25 +4,33 @@
 #include <CRC32.h>
 #include "TimerOne.h"
 
-#define STREAM_TIMEOUT 50 // 500mS
+#define STREAM_TIMEOUT 75 // 750mS
 
 #define FAIL_BLINK_PERIDOD  5 // 50mS
 #define LOAD_BLINK_PERIDOD  50 // 500mS
+
+#define BEEP_FAIL_PERIDOD  100 // 1S
+#define BEEP_SUCCES_PERIDOD  5 // 50mS
 
 #define RX_BUFFER_SIZE  64
 
 #define CLK_PIN  3
 #define DTA_PIN  2
 #define VCC_PIN  4
+#define BEEP_PIN 5
 
 #define CLK_HIGH()  (FastGPIO::Pin<CLK_PIN>::setOutputValueHigh())
 #define CLK_LOW()  (FastGPIO::Pin<CLK_PIN>::setOutputValueLow())
 
 #define DTA_HIGH()  (FastGPIO::Pin<DTA_PIN>::setOutputValueHigh())
 #define DTA_LOW()  (FastGPIO::Pin<DTA_PIN>::setOutputValueLow())
+#define DATA_READ() (FastGPIO::Pin<DTA_PIN>::isInputHigh())
 
 #define VCC_HIGH()  (FastGPIO::Pin<VCC_PIN>::setOutputValueHigh())
 #define VCC_LOW()  (FastGPIO::Pin<VCC_PIN>::setOutputValueLow())
+
+#define BEEP_HIGH()  (FastGPIO::Pin<BEEP_PIN>::setOutputValueHigh())
+#define BEEP_LOW()  (FastGPIO::Pin<BEEP_PIN>::setOutputValueLow())
 
 #define CLK_TOGGLE() (FastGPIO::Pin<CLK_PIN>::setOutputValueToggle())
 #define DTA_TOGGLE() (FastGPIO::Pin<DTA_PIN>::setOutputValueToggle())
@@ -65,7 +73,8 @@ typedef union
 const char BOOT_KEY[] = "BOOT";
 
 //---------------------------------
-extern const PROGMEM char WriteStart[], WriteSeperate[], WriteFinish[], WriteInitalizeData1[], WriteInitalizeData2[], WriteTestData[];
+extern const char WriteStart[], WriteSeperate[], WriteFinish[], WriteInitalizeData1[], WriteInitalizeData2[], WriteTestData[];
+extern const char ReadInitalize[], ReadSeperate[];
 CRC32 crc;
 uint8_t StreamTimeout;
 uint8_t LedTimeout;
@@ -81,6 +90,7 @@ Flag_t Flags;
 uint8_t WriteStep;
 uint32_t Image_Size;
 uint32_t Crc32;
+uint8_t BeeperTimeout;
 /***********************************************************/
 /***********************************************************/
 /***********************************************************/
@@ -122,6 +132,18 @@ void ISR_Time_Tick(void) // per 10mS
         if(--StreamTimeout == 0)
         {
             Stream_State = TIMEOUT;
+        }
+    }
+    //-----------------------
+    if(BeeperTimeout > 0)
+    {
+        if(--BeeperTimeout == 0)
+        {
+            BEEP_LOW();
+        }
+        else
+        {
+            BEEP_HIGH();
         }
     }
     //-----------------------
@@ -319,18 +341,40 @@ void SendByte(uint8_t temp)
     delayMicroseconds(10);
 }
 /***********************************************************/
+uint8_t ReadByte(void)
+{
+    uint8_t temp, i;
+    pinMode(DTA_PIN, INPUT);
+    for(i = 0; i < 9; i++)
+    {
+        temp >>= 1;
+        CLK_HIGH();
+        if(DATA_READ())
+        {
+            temp |= 0x80;
+        }
+        delayMicroseconds(2);
+        CLK_LOW();
+        delayMicroseconds(2);
+    }
+    pinMode(DTA_PIN, OUTPUT);
+    return temp;
+}
+/***********************************************************/
 void LoaderHandler(void)
 {
     static uint8_t byte_counter;
     static uint32_t total_counter;
-    uint8_t temp;
+    static uint8_t temp;
 
     switch(Procces_State)
     {
         case IDLE:
+            VCC_LOW();
             WriteStep = 0;
             break;
         case BURN:
+            Led_State = LED_BURN;
             switch(WriteStep)
             {
                 case 0:
@@ -365,28 +409,48 @@ void LoaderHandler(void)
                             SendByte(0xFF); // padding
                             delayMicroseconds(16);
                         }
-                        Procces_State = CHECK;
                         SendData(WriteFinish);
-                        VCC_LOW();
+                        Procces_State = CHECK;
                     }
                     break;
             }
             break;
         case CHECK:
-            Procces_State = IDLE;
             if(Crc32 != crc.finalize())
             {
                 Led_State = LED_FAIL;
+                BeeperTimeout = BEEP_FAIL_PERIDOD;
             }
             else
             {
-                crc.reset();
-                delay(500);
-                VCC_HIGH();
-                delay(500);
                 VCC_LOW();
-                Led_State = LED_ON;
+                delay(500);
+                SendPreamble();
+                delay(1);
+                SendData(ReadInitalize);
+                crc.reset();
+                total_counter = 0;
+                while(total_counter++ < Image_Size)
+                {
+                    temp = ReadByte();
+                    crc.update(temp);
+                    if((total_counter % 64) == 0)
+                    {
+                        SendData(ReadSeperate);
+                    }
+                }
+                if(Crc32 != crc.finalize())
+                {
+                    Led_State = LED_FAIL;
+                    BeeperTimeout = BEEP_FAIL_PERIDOD;
+                }
+                else
+                {
+                    Led_State = LED_ON;
+                    BeeperTimeout = BEEP_SUCCES_PERIDOD;
+                }
             }
+            Procces_State = IDLE;
             break;
     }
 }
@@ -457,35 +521,8 @@ void DataHandler(void)
             }
             break;
         case DOWNLOADING:
-
-            //     StreamBuffer[byte_counter] = incomingByte;
-            //     byte_counter++;
-            //     total_counter++;
-            //     if(total_counter >= image_length)
-            //     {
-            //         if(crc32 != crc.finalize())
-            //         {
-            //             Led_State = LED_FAIL;
-            //             byte_counter = 0;
-            //             Stream_State = WAIT;
-            //         }
-            //         else
-            //         {
-            //             Flags.imageDone = true;
-            //             while(byte_counter < 64)
-            //             {
-            //                 StreamBuffer[byte_counter++] = 0xFF; // padding
-            //             }
-            //         }
-            //     }
-            //     if(byte_counter >= 64)
-            //     {
-            //         byte_counter = 0;
-            //         Flags.pageDone = true;
-            //     }
             break;
-        case TIMEOUT:
-            Led_State = LED_OFF;
+        case TIMEOUT:            
             byte_counter = 0;
             Stream_State = WAIT;
             Procces_State = IDLE;
@@ -499,6 +536,7 @@ void setup()
     pinMode(CLK_PIN, OUTPUT);
     pinMode(DTA_PIN, OUTPUT);
     pinMode(VCC_PIN, OUTPUT);
+    pinMode(BEEP_PIN, OUTPUT);
     Serial.begin(115200);
     Serial.println(F("Restart!"));
 
