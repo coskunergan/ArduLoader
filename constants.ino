@@ -1,4 +1,14 @@
 
+/*
+ *  8051 ICSP Programmer Loader 
+ *
+ *  Created on: Dec 25, 2020
+ *
+ *  Author: Coskun ERGAN
+ * 
+ *  V-1.0
+ */
+
 const PROGMEM char ReadInitalize[]  =
 " \
 0110111010101001 0110100001    \
@@ -60,7 +70,7 @@ const PROGMEM char WriteFinish[]  =
 1111010010100010 0000100001 \
 ";
 
-const PROGMEM char WriteInitalizeData1[]  = 
+const PROGMEM char WriteInitalize1[]  = 
 " \
 0110111010101001 0110100001    \
 0010111101101010 1100100111    \
@@ -202,7 +212,7 @@ const PROGMEM char WriteInitalizeData1[]  =
 1000010011111001 0100111111 \
 ";
 
-const PROGMEM char WriteInitalizeData2[]  = 
+const PROGMEM char WriteInitalize2[]  = 
 " \
 1000010101011010 1000011001 \
 0111101111100110 0111010111 \

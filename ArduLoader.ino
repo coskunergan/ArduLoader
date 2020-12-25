@@ -1,30 +1,41 @@
 
+/*
+ *  8051 ICSP Programmer Loader
+ *
+ *  Created on: Dec 25, 2020
+ *
+ *  Author: Coskun ERGAN
+ *
+ *  V-1.0
+ */
+
 #include <stdio.h>
 #include <FastGPIO.h>
 #include <CRC32.h>
 #include "TimerOne.h"
 
-#define STREAM_TIMEOUT 75 // 750mS
-
-#define FAIL_BLINK_PERIDOD  5 // 50mS
-#define LOAD_BLINK_PERIDOD  50 // 500mS
-
-#define BEEP_FAIL_PERIDOD  100 // 1S
-#define BEEP_SUCCES_PERIDOD  5 // 50mS
-
-#define RX_BUFFER_SIZE  64
-
-#define CLK_PIN  3
-#define DTA_PIN  2
-#define VCC_PIN  4
-#define BEEP_PIN 5
+//------ Config ------
+#define STREAM_TIMEOUT      75  // 750mS
+#define FAIL_BLINK_PERIDOD  5   // 50mS
+#define LOAD_BLINK_PERIDOD  50  // 500mS
+#define BEEP_FAIL_PERIDOD   100 // 1S
+#define BEEP_SUCCES_PERIDOD 5   // 50mS
+#define RX_BUFFER_SIZE      64  // bytes
+#define CLK_PIN             3   // O-PIN
+#define DTA_PIN             2   // IO-PIN
+#define VCC_PIN             4   // O-PIN
+#define BEEP_PIN            5   // O-PIN
+#define BOOT_KEY            "BOOT"  // 4 Char String 
+//--------------------
 
 #define CLK_HIGH()  (FastGPIO::Pin<CLK_PIN>::setOutputValueHigh())
 #define CLK_LOW()  (FastGPIO::Pin<CLK_PIN>::setOutputValueLow())
 
 #define DTA_HIGH()  (FastGPIO::Pin<DTA_PIN>::setOutputValueHigh())
 #define DTA_LOW()  (FastGPIO::Pin<DTA_PIN>::setOutputValueLow())
-#define DATA_READ() (FastGPIO::Pin<DTA_PIN>::isInputHigh())
+#define DTA_READ() (FastGPIO::Pin<DTA_PIN>::isInputHigh())
+#define DTA_INPUT() (FastGPIO::Pin<DTA_PIN>::setInputPulledUp())
+#define DTA_OUTPUT() (FastGPIO::Pin<DTA_PIN>::setOutputValue(0))
 
 #define VCC_HIGH()  (FastGPIO::Pin<VCC_PIN>::setOutputValueHigh())
 #define VCC_LOW()  (FastGPIO::Pin<VCC_PIN>::setOutputValueLow())
@@ -42,7 +53,7 @@ typedef enum
     LED_OFF,
     LED_ON,
     LED_FAIL,
-    LED_BURN
+    LED_BUSY
 } Led_State_t;
 
 typedef enum
@@ -59,72 +70,76 @@ typedef enum
     TIMEOUT
 } Stream_State_t;
 
+typedef enum
+{
+    BEGIN,
+    DATA_WRITE
+} Burn_Stage_t;
+
 typedef union
 {
     uint8_t Value;
     struct
     {
-        unsigned pageDone: 1;
-        unsigned imageDone: 1;
+        unsigned Burn: 1;
+        unsigned Check: 1;
+        unsigned Vddon: 1;
+        unsigned Beepon: 1;
     };
-} Flag_t;
+} Parameters_t;
 
-
-const char BOOT_KEY[] = "BOOT";
+const char Key_Reg[] = BOOT_KEY;
 
 //---------------------------------
-extern const char WriteStart[], WriteSeperate[], WriteFinish[], WriteInitalizeData1[], WriteInitalizeData2[], WriteTestData[];
+extern const char WriteStart[], WriteSeperate[], WriteFinish[], WriteInitalize1[], WriteInitalize2[], WriteTestData[];
 extern const char ReadInitalize[], ReadSeperate[];
-CRC32 crc;
-uint8_t StreamTimeout;
-uint8_t LedTimeout;
 Led_State_t Led_State;
 Procces_State_t Procces_State;
 Stream_State_t Stream_State;
-uint32_t image_length;
+Parameters_t Parameters;
+Burn_Stage_t Burn_Stage;
+CRC32 crc;
 uint8_t BurnChapter;
-uint8_t rxBuffer[RX_BUFFER_SIZE];
-uint8_t rxstart = 0;
-uint8_t rxend = 0;
-Flag_t Flags;
-uint8_t WriteStep;
+uint8_t RxBuffer[RX_BUFFER_SIZE];
+uint8_t RxStart;
+uint8_t RxEnd;
+uint8_t BeeperTimeout;
+uint8_t StreamTimeout;
+uint8_t LedTimeout;
 uint32_t Image_Size;
 uint32_t Crc32;
-uint8_t BeeperTimeout;
 /***********************************************************/
 /***********************************************************/
 /***********************************************************/
-bool rx_pop(uint8_t *b)
+bool Pop_Byte(uint8_t *byt)
 {
-    if(rxend - rxstart == 0)
+    if(RxEnd - RxStart == 0)
     {
         return false;
     }
-
-    *b = rxBuffer[rxstart];
-
-    if(++rxstart >= RX_BUFFER_SIZE)
+    *byt = RxBuffer[RxStart];
+    if(++RxStart >= RX_BUFFER_SIZE)
     {
-        rxstart = 0;
+        RxStart = 0;
     }
     return true;
 }
 /***********************************************************/
-void rx_push(uint8_t b)
+void Push_Byte(uint8_t byt)
 {
-    if((rxend - rxstart) % RX_BUFFER_SIZE == (RX_BUFFER_SIZE - 1))
+    if((RxEnd - RxStart) % RX_BUFFER_SIZE == (RX_BUFFER_SIZE - 1))
     {
         /* Avoid overflow */
         return;
     }
-    rxBuffer[rxend] = b;
-    if(++rxend >= RX_BUFFER_SIZE)
+    RxBuffer[RxEnd] = byt;
+    if(++RxEnd >= RX_BUFFER_SIZE)
     {
-        rxend = 0;
+        RxEnd = 0;
     }
 }
 /***********************************************************/
-void ISR_Time_Tick(void) // per 10mS
+void ISR_Time_Tick(void) // ISR per 10mS
 {
     //----------------------
     if(StreamTimeout > 0)
@@ -137,7 +152,7 @@ void ISR_Time_Tick(void) // per 10mS
     //-----------------------
     if(BeeperTimeout > 0)
     {
-        if(--BeeperTimeout == 0)
+        if((--BeeperTimeout == 0) && (Parameters.Beepon == true))
         {
             BEEP_LOW();
         }
@@ -166,7 +181,7 @@ void ISR_Time_Tick(void) // per 10mS
                 LedTimeout--;
             }
             break;
-        case LED_BURN:
+        case LED_BUSY:
             if(LedTimeout == 0)
             {
                 LedTimeout = LOAD_BLINK_PERIDOD;
@@ -278,43 +293,27 @@ void SendData(const char *databuffer)
     char character;
     do
     {
-        CLK_LOW();
         character = pgm_read_byte_near(databuffer + i);
         i++;
         if(character == '0')
         {
             DTA_LOW();
-            NOP();
-            NOP();
-            NOP();
-            NOP();
-            NOP();
-            NOP();
-            NOP();
-            NOP();
+            delayMicroseconds(2);
             CLK_HIGH();
         }
         else if(character  == '1')
         {
             DTA_HIGH();
-            NOP();
-            NOP();
-            NOP();
-            NOP();
-            NOP();
-            NOP();
-            NOP();
-            NOP();
+            delayMicroseconds(2);
             CLK_HIGH();
         }
         else
         {
             DTA_LOW();
-            CLK_LOW();
             delayMicroseconds(10);
         }
-        NOP();
-        NOP();
+        delayMicroseconds(2);
+        CLK_LOW();
     }
     while(character != '\0');
 }
@@ -344,12 +343,12 @@ void SendByte(uint8_t temp)
 uint8_t ReadByte(void)
 {
     uint8_t temp, i;
-    pinMode(DTA_PIN, INPUT);
+    DTA_INPUT();
     for(i = 0; i < 9; i++)
     {
         temp >>= 1;
         CLK_HIGH();
-        if(DATA_READ())
+        if(DTA_READ())
         {
             temp |= 0x80;
         }
@@ -357,41 +356,59 @@ uint8_t ReadByte(void)
         CLK_LOW();
         delayMicroseconds(2);
     }
-    pinMode(DTA_PIN, OUTPUT);
+    DTA_OUTPUT();
     return temp;
 }
 /***********************************************************/
 void LoaderHandler(void)
 {
+    static uint8_t temp;
     static uint8_t byte_counter;
     static uint32_t total_counter;
-    static uint8_t temp;
 
     switch(Procces_State)
     {
         case IDLE:
-            VCC_LOW();
-            WriteStep = 0;
+            if(Parameters.Burn)
+            {
+                Parameters.Burn = false;
+                Burn_Stage = BEGIN;
+                Procces_State = BURN;
+                Led_State = LED_BUSY;
+            }
+            else if(Parameters.Check)
+            {
+                Parameters.Check = false;
+                Procces_State = CHECK;
+                Led_State = LED_BUSY;
+            }
+            else if(Parameters.Vddon)
+            {
+                VCC_HIGH();
+            }
+            else
+            {
+                VCC_LOW();
+            }
             break;
         case BURN:
-            Led_State = LED_BURN;
-            switch(WriteStep)
+            switch(Burn_Stage)
             {
-                case 0:
+                case BEGIN:
                     SendPreamble();
                     delay(1);
-                    SendData(WriteInitalizeData1);
+                    SendData(WriteInitalize1);
                     delay(32);
-                    SendData(WriteInitalizeData2);
+                    SendData(WriteInitalize2);
                     delay(30);
                     SendData(WriteStart);
-                    WriteStep = 1;
                     total_counter = 0;
                     byte_counter = 0;
                     crc.reset();
+                    Burn_Stage = DATA_WRITE;
                     break;
-                case 1:
-                    if(rx_pop(&temp) == true)
+                case DATA_WRITE:
+                    if(Pop_Byte(&temp) == true)
                     {
                         SendByte(temp);
                         crc.update(temp);
@@ -410,7 +427,10 @@ void LoaderHandler(void)
                             delayMicroseconds(16);
                         }
                         SendData(WriteFinish);
-                        Procces_State = CHECK;
+                        VCC_LOW();
+                        delay(500);
+                        Led_State = LED_ON;
+                        Procces_State = IDLE;
                     }
                     break;
             }
@@ -423,8 +443,6 @@ void LoaderHandler(void)
             }
             else
             {
-                VCC_LOW();
-                delay(500);
                 SendPreamble();
                 delay(1);
                 SendData(ReadInitalize);
@@ -450,6 +468,8 @@ void LoaderHandler(void)
                     BeeperTimeout = BEEP_SUCCES_PERIDOD;
                 }
             }
+            VCC_LOW();
+            delay(500);
             Procces_State = IDLE;
             break;
     }
@@ -463,17 +483,17 @@ void DataHandler(void)
     switch(Stream_State)
     {
         case WAIT:
-            if(rx_pop(&incomingByte) == false)
+            if(Pop_Byte(&incomingByte) == false)
             {
                 break;
             }
-            switch(byte_counter++)
+            switch(byte_counter)
             {
                 case 0:
                 case 1:
                 case 2:
                 case 3:
-                    if(incomingByte != BOOT_KEY[byte_counter - 1])
+                    if(incomingByte != Key_Reg[byte_counter])
                     {
                         byte_counter = 0;
                     }
@@ -503,26 +523,30 @@ void DataHandler(void)
                     Image_Size |= ((uint32_t)incomingByte << 24);
                     break;
                 case 12:
-                    Procces_State = (Procces_State_t)incomingByte;
+                    Parameters.Value = incomingByte;
                     Serial.print(F("Size:"));
                     Serial.println(Image_Size, DEC);
                     Serial.print(F("CRC:"));
                     Serial.println(Crc32, HEX);
-                    switch(Procces_State)
+                    if(Parameters.Burn)
                     {
-                        case BURN:
-                            Stream_State = DOWNLOADING;
-                            break;
-                        case CHECK:
-                            break;
+                        Stream_State = DOWNLOADING;
                     }
-                    byte_counter = 0;
                     break;
             }
+            byte_counter++;
             break;
         case DOWNLOADING:
+            if(Procces_State == IDLE)
+            {
+                byte_counter = 0;
+                StreamTimeout = 0;
+                Stream_State = WAIT;
+            }
             break;
-        case TIMEOUT:            
+        case TIMEOUT:
+            Led_State = LED_FAIL;
+            BeeperTimeout = BEEP_FAIL_PERIDOD;
             byte_counter = 0;
             Stream_State = WAIT;
             Procces_State = IDLE;
@@ -530,7 +554,7 @@ void DataHandler(void)
     }
 }
 /***********************************************************/
-void setup()
+void setup(void)
 {
     pinMode(LED_BUILTIN, OUTPUT);
     pinMode(CLK_PIN, OUTPUT);
@@ -543,25 +567,25 @@ void setup()
     Timer1.initialize(10000); // per 10mS
     Timer1.attachInterrupt(ISR_Time_Tick);
 
-    StreamTimeout = 0;
-    LedTimeout = 0;
     Led_State = LED_OFF;
     Procces_State = IDLE;
     Stream_State = WAIT;
-    Flags.Value = 0;
+    Parameters.Value = 0;
+    RxStart = RxEnd = 0;
+    BeeperTimeout = LedTimeout = StreamTimeout = 0;
 }
 /***********************************************************/
-void loop()
+void loop(void)
 {
     DataHandler();
     LoaderHandler();
 }
 /***********************************************************/
-void serialEvent()
+void serialEvent(void)
 {
     while(Serial.available())
     {
-        rx_push(Serial.read());
+        Push_Byte(Serial.read());
     }
     StreamTimeout = STREAM_TIMEOUT;
 }
