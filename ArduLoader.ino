@@ -34,8 +34,8 @@
 #define DTA_HIGH()  (FastGPIO::Pin<DTA_PIN>::setOutputValueHigh())
 #define DTA_LOW()  (FastGPIO::Pin<DTA_PIN>::setOutputValueLow())
 #define DTA_READ() (FastGPIO::Pin<DTA_PIN>::isInputHigh())
-#define DTA_INPUT() (FastGPIO::Pin<DTA_PIN>::setInputPulledUp())
-#define DTA_OUTPUT() (FastGPIO::Pin<DTA_PIN>::setOutputValue(0))
+#define DTA_INPUT() (pinMode(DTA_PIN, INPUT))//(FastGPIO::Pin<DTA_PIN>::setInput())
+#define DTA_OUTPUT() (pinMode(DTA_PIN, OUTPUT))//(FastGPIO::Pin<DTA_PIN>::setOutputValue(0))
 
 #define VCC_HIGH()  (FastGPIO::Pin<VCC_PIN>::setOutputValueHigh())
 #define VCC_LOW()  (FastGPIO::Pin<VCC_PIN>::setOutputValueLow())
@@ -200,90 +200,27 @@ void SendPreamble(void)
 {
     int i, j;
     noInterrupts();
+    pinMode(DTA_PIN, OUTPUT);
+    pinMode(CLK_PIN, OUTPUT);
     DTA_HIGH();
-    for(j = 0; j < 30; j++)
-    {
-        CLK_TOGGLE();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        delayMicroseconds(11); // 45KHz
-    }
     VCC_HIGH();
-    for(j = 0; j < 30; j++)
-    {
-        CLK_TOGGLE();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        delayMicroseconds(11); // 45KHz
-    }
     for(i = 0; i < 315; i++)
     {
         DTA_TOGGLE(); // 750Hz
         for(j = 0; j < 60; j++)
         {
             CLK_TOGGLE();
-            _NOP();
-            _NOP();
-            _NOP();
-            _NOP();
-            _NOP();
-            _NOP();
-            _NOP();
-            _NOP();
-            _NOP();
-            _NOP();
-            _NOP();
-            _NOP();
-            _NOP();
-            _NOP();
-            delayMicroseconds(11); // 45KHz
+            delayMicroseconds(12); // 45KHz
         }
     }
     DTA_LOW();
     for(j = 0; j < 120; j++)
     {
         CLK_TOGGLE();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        _NOP();
-        delayMicroseconds(11); // 45KHz
+        delayMicroseconds(12); // 45KHz
     }
     CLK_LOW();
+    delay(1);
     interrupts();
 }
 /***********************************************************/
@@ -293,8 +230,8 @@ void SendData(const char *databuffer)
     char character;
     do
     {
+        CLK_LOW();
         character = pgm_read_byte_near(databuffer + i);
-        i++;
         if(character == '0')
         {
             DTA_LOW();
@@ -312,16 +249,19 @@ void SendData(const char *databuffer)
             DTA_LOW();
             delayMicroseconds(10);
         }
+        i++;
         delayMicroseconds(2);
-        CLK_LOW();
     }
     while(character != '\0');
+    DTA_LOW();
+    CLK_LOW();
 }
 /***********************************************************/
 void SendByte(uint8_t temp)
 {
     uint8_t i;
-    for(i = 0; i < 9; i++)
+
+    for(i = 0; i < 8; i++)
     {
         if(temp & 0x1)
         {
@@ -331,13 +271,16 @@ void SendByte(uint8_t temp)
         {
             DTA_LOW();
         }
-        temp >>= 1;
         delayMicroseconds(2);
         CLK_HIGH();
+        temp >>= 1;
         delayMicroseconds(2);
         CLK_LOW();
     }
-    delayMicroseconds(10);
+    CLK_HIGH();
+    delayMicroseconds(2);
+    CLK_LOW();
+    DTA_LOW();
 }
 /***********************************************************/
 uint8_t ReadByte(void)
@@ -357,6 +300,7 @@ uint8_t ReadByte(void)
         delayMicroseconds(2);
     }
     DTA_OUTPUT();
+    DTA_LOW();
     return temp;
 }
 /***********************************************************/
@@ -396,7 +340,6 @@ void LoaderHandler(void)
             {
                 case BEGIN:
                     SendPreamble();
-                    delay(1);
                     SendData(WriteInitalize1);
                     delay(32);
                     SendData(WriteInitalize2);
@@ -411,6 +354,7 @@ void LoaderHandler(void)
                     if(Pop_Byte(&temp) == true)
                     {
                         SendByte(temp);
+                        delayMicroseconds(8);
                         crc.update(temp);
                         if(++byte_counter >= 64)
                         {
@@ -424,10 +368,12 @@ void LoaderHandler(void)
                         while(byte_counter++ < 64)
                         {
                             SendByte(0xFF); // padding
-                            delayMicroseconds(16);
+                            delayMicroseconds(30);
                         }
                         SendData(WriteFinish);
                         VCC_LOW();
+                        pinMode(DTA_PIN, INPUT);
+                        pinMode(CLK_PIN, INPUT);
                         delay(500);
                         Led_State = LED_ON;
                         Procces_State = IDLE;
@@ -444,7 +390,6 @@ void LoaderHandler(void)
             else
             {
                 SendPreamble();
-                delay(1);
                 SendData(ReadInitalize);
                 crc.reset();
                 total_counter = 0;
@@ -469,6 +414,8 @@ void LoaderHandler(void)
                 }
             }
             VCC_LOW();
+            pinMode(DTA_PIN, INPUT);
+            pinMode(CLK_PIN, INPUT);
             delay(500);
             Procces_State = IDLE;
             break;
@@ -532,6 +479,12 @@ void DataHandler(void)
                     {
                         Stream_State = DOWNLOADING;
                     }
+                    else
+                    {
+                        byte_counter = 0;
+                        StreamTimeout = 0;
+                        Led_State = LED_ON;
+                    }
                     break;
             }
             byte_counter++;
@@ -557,12 +510,12 @@ void DataHandler(void)
 void setup(void)
 {
     pinMode(LED_BUILTIN, OUTPUT);
-    pinMode(CLK_PIN, OUTPUT);
-    pinMode(DTA_PIN, OUTPUT);
+    pinMode(CLK_PIN, INPUT);
+    pinMode(DTA_PIN, INPUT);
     pinMode(VCC_PIN, OUTPUT);
     pinMode(BEEP_PIN, OUTPUT);
     Serial.begin(115200);
-    Serial.println(F("Restart!"));
+    Serial.println(F("Restart!\r\n\r\n\r\n\r\n"));
 
     Timer1.initialize(10000); // per 10mS
     Timer1.attachInterrupt(ISR_Time_Tick);
