@@ -1,18 +1,25 @@
 
 /*
- *  8051 ICSP Programmer Loader
- *
- *  Created on: Dec 25, 2020
- *
- *  Author: Coskun ERGAN
- *
- *  V-1.0
- */
+    8051 ICSP Programmer Loader
+
+    Created on: Dec 25, 2020
+
+    Author: Coskun ERGAN
+
+    V-1.0
+*/
 
 #include <stdio.h>
 #include <FastGPIO.h>
 #include <CRC32.h>
 #include "TimerOne.h"
+#include <avr/wdt.h>
+
+//--------USB HID---------
+#include <hidboot.h>
+#include <usbhub.h>
+#include <SPI.h>
+//------------------------
 
 //------ Config ------
 #define STREAM_TIMEOUT      75  // 750mS
@@ -27,6 +34,7 @@
 #define BEEP_PIN            5   // O-PIN
 #define BOOT_KEY            "BOOT"  // 4 Char String 
 //--------------------
+#define KEYBOARD_STREAM_TIMEOUT   2  // 20mS
 
 #define CLK_HIGH()  (FastGPIO::Pin<CLK_PIN>::setOutputValueHigh())
 #define CLK_LOW()  (FastGPIO::Pin<CLK_PIN>::setOutputValueLow())
@@ -108,8 +116,32 @@ uint8_t StreamTimeout;
 uint8_t LedTimeout;
 uint32_t Image_Size;
 uint32_t Crc32;
+uint8_t KeyboadStreamTimeout;
+uint8_t checksum;
 /***********************************************************/
 /***********************************************************/
+/***********************************************************/
+class KbdRptParser : public KeyboardReportParser
+{
+protected:
+    void OnKeyDown(uint8_t mod, uint8_t key);
+};
+/***********************************************************/
+void KbdRptParser::OnKeyDown(uint8_t mod, uint8_t key)
+{
+    uint8_t c = OemToAscii(0, key);
+
+    if(c)
+    {
+        Serial.print((char)c);
+        checksum += c;
+        KeyboadStreamTimeout = KEYBOARD_STREAM_TIMEOUT;
+    }
+}
+/***********************************************************/
+USB     Usb;
+HIDBoot<USB_HID_PROTOCOL_KEYBOARD>    HidKeyboard(&Usb);
+KbdRptParser Prs;
 /***********************************************************/
 bool Pop_Byte(uint8_t *byt)
 {
@@ -141,6 +173,15 @@ void Push_Byte(uint8_t byt)
 /***********************************************************/
 void ISR_Time_Tick(void) // ISR per 10mS
 {
+    //----------------------
+    if(KeyboadStreamTimeout > 0)
+    {
+        if(--KeyboadStreamTimeout  == 0)
+        {
+            Serial.println((char)checksum);
+            checksum = 0;
+        }
+    }
     //----------------------
     if(StreamTimeout > 0)
     {
@@ -386,6 +427,7 @@ void LoaderHandler(void)
             {
                 Led_State = LED_FAIL;
                 BeeperTimeout = BEEP_FAIL_PERIDOD;
+                Serial.println(F("ERROR"));
             }
             else
             {
@@ -406,11 +448,13 @@ void LoaderHandler(void)
                 {
                     Led_State = LED_FAIL;
                     BeeperTimeout = BEEP_FAIL_PERIDOD;
+                    Serial.println(F("ERROR"));
                 }
                 else
                 {
                     Led_State = LED_ON;
-                    BeeperTimeout = BEEP_SUCCES_PERIDOD;
+                    BeeperTimeout = BEEP_SUCCES_PERIDOD;                    
+                    Serial.println(F("SUCCES"));
                 }
             }
             VCC_LOW();
@@ -509,6 +553,7 @@ void DataHandler(void)
 /***********************************************************/
 void setup(void)
 {
+    wdt_enable(WDTO_4S);
     pinMode(LED_BUILTIN, OUTPUT);
     pinMode(CLK_PIN, INPUT);
     pinMode(DTA_PIN, INPUT);
@@ -526,12 +571,22 @@ void setup(void)
     Parameters.Value = 0;
     RxStart = RxEnd = 0;
     BeeperTimeout = LedTimeout = StreamTimeout = 0;
+    KeyboadStreamTimeout = checksum = 0;    
+
+    if(Usb.Init() == -1)
+    {
+        Serial.println("OSC did not start.");
+    }
+    delay(200);
+    HidKeyboard.SetReportParser(0, &Prs);
 }
 /***********************************************************/
 void loop(void)
 {
+    Usb.Task();
     DataHandler();
     LoaderHandler();
+    wdt_reset();
 }
 /***********************************************************/
 void serialEvent(void)
