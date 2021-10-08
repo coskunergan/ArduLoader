@@ -22,7 +22,7 @@
 //------------------------
 
 //------ Config ------
-#define STREAM_TIMEOUT      75  // 750mS
+#define STREAM_TIMEOUT      50  // 500mS
 #define FAIL_BLINK_PERIDOD  5   // 50mS
 #define LOAD_BLINK_PERIDOD  50  // 500mS
 #define BEEP_FAIL_PERIDOD   100 // 1S
@@ -33,6 +33,7 @@
 #define VCC_PIN             4   // O-PIN
 #define BEEP_PIN            5   // O-PIN
 #define BOOT_KEY            "BOOT"  // 4 Char String 
+#define BEEP_KEY            "Beep"  // 4 Char String 
 //--------------------
 #define KEYBOARD_STREAM_TIMEOUT   2  // 20mS
 
@@ -45,11 +46,11 @@
 #define DTA_INPUT() (pinMode(DTA_PIN, INPUT))//(FastGPIO::Pin<DTA_PIN>::setInput())
 #define DTA_OUTPUT() (pinMode(DTA_PIN, OUTPUT))//(FastGPIO::Pin<DTA_PIN>::setOutputValue(0))
 
-#define VCC_HIGH()  (FastGPIO::Pin<VCC_PIN>::setOutputValueHigh())
-#define VCC_LOW()  (FastGPIO::Pin<VCC_PIN>::setOutputValueLow())
+#define VCC_LOW()  (FastGPIO::Pin<VCC_PIN>::setOutputValueHigh())
+#define VCC_HIGH()  (FastGPIO::Pin<VCC_PIN>::setOutputValueLow())
 
-#define BEEP_HIGH()  (FastGPIO::Pin<BEEP_PIN>::setOutputValueHigh())
-#define BEEP_LOW()  (FastGPIO::Pin<BEEP_PIN>::setOutputValueLow())
+#define BEEP_ON()  (FastGPIO::Pin<BEEP_PIN>::setOutputValueHigh())
+#define BEEP_OFF()  (FastGPIO::Pin<BEEP_PIN>::setOutputValueLow())
 
 #define CLK_TOGGLE() (FastGPIO::Pin<CLK_PIN>::setOutputValueToggle())
 #define DTA_TOGGLE() (FastGPIO::Pin<DTA_PIN>::setOutputValueToggle())
@@ -97,6 +98,7 @@ typedef union
 } Parameters_t;
 
 const char Key_Reg[] = BOOT_KEY;
+const char Key_Beep[] = BEEP_KEY;
 
 //---------------------------------
 extern const char WriteStart[], WriteSeperate[], WriteFinish[], WriteInitalize1[], WriteInitalize2[], WriteTestData[];
@@ -131,10 +133,10 @@ void KbdRptParser::OnKeyDown(uint8_t mod, uint8_t key)
 {
     uint8_t c = OemToAscii(0, key);
 
-    if(c)
+    if(c && (c != 0xD))
     {
         Serial.print((char)c);
-        checksum += c;
+        checksum ^= c;
         KeyboadStreamTimeout = KEYBOARD_STREAM_TIMEOUT;
     }
 }
@@ -178,7 +180,11 @@ void ISR_Time_Tick(void) // ISR per 10mS
     {
         if(--KeyboadStreamTimeout  == 0)
         {
-            Serial.println((char)checksum);
+            if(checksum < 10)
+            {
+                Serial.print('0');
+            }
+            Serial.print((uint8_t)checksum, HEX);
             checksum = 0;
         }
     }
@@ -191,15 +197,15 @@ void ISR_Time_Tick(void) // ISR per 10mS
         }
     }
     //-----------------------
-    if(BeeperTimeout > 0)
+    if(BeeperTimeout)
     {
-        if((--BeeperTimeout == 0) && (Parameters.Beepon == true))
+        if(--BeeperTimeout == 0)
         {
-            BEEP_LOW();
+            BEEP_OFF();
         }
-        else
+        else if(Parameters.Beepon == true)
         {
-            BEEP_HIGH();
+            BEEP_ON();
         }
     }
     //-----------------------
@@ -453,7 +459,7 @@ void LoaderHandler(void)
                 else
                 {
                     Led_State = LED_ON;
-                    BeeperTimeout = BEEP_SUCCES_PERIDOD;                    
+                    BeeperTimeout = BEEP_SUCCES_PERIDOD;
                     Serial.println(F("SUCCES"));
                 }
             }
@@ -486,7 +492,15 @@ void DataHandler(void)
                 case 3:
                     if(incomingByte != Key_Reg[byte_counter])
                     {
-                        byte_counter = 0;
+                        if(incomingByte != Key_Beep[byte_counter])
+                        {
+                            byte_counter = 0;
+                        }
+                        else if(byte_counter == 3)
+                        {
+                            byte_counter = 0;
+                            BeeperTimeout = BEEP_SUCCES_PERIDOD;
+                        }
                     }
                     break;
                 case 4:
@@ -560,7 +574,7 @@ void setup(void)
     pinMode(VCC_PIN, OUTPUT);
     pinMode(BEEP_PIN, OUTPUT);
     Serial.begin(115200);
-    Serial.println(F("Restart!\r\n\r\n\r\n\r\n"));
+    //Serial.println(F("Restart!\r\nV1.0\r\n\r\n\r\n"));
 
     Timer1.initialize(10000); // per 10mS
     Timer1.attachInterrupt(ISR_Time_Tick);
@@ -568,14 +582,20 @@ void setup(void)
     Led_State = LED_OFF;
     Procces_State = IDLE;
     Stream_State = WAIT;
-    Parameters.Value = 0;
+    Parameters.Beepon = true;
     RxStart = RxEnd = 0;
     BeeperTimeout = LedTimeout = StreamTimeout = 0;
-    KeyboadStreamTimeout = checksum = 0;    
+    KeyboadStreamTimeout = checksum = 0;
 
     if(Usb.Init() == -1)
     {
         Serial.println("OSC did not start.");
+        BeeperTimeout = BEEP_FAIL_PERIDOD;
+        //while(1);
+    }
+    else
+    {
+        BeeperTimeout = BEEP_SUCCES_PERIDOD;
     }
     delay(200);
     HidKeyboard.SetReportParser(0, &Prs);
