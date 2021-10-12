@@ -150,6 +150,10 @@ void KbdRptParser::OnKeyDown(uint8_t mod, uint8_t key)
         {
             c = '.';
         }
+        else if(c == 0x27)
+        {
+            c = 'I';
+        }        
         else if(c >= 97 && c <= 122)
         {
             c -= 32;
@@ -199,7 +203,7 @@ void ISR_Time_Tick(void) // ISR per 10mS
     {
         if(--KeyboadStreamTimeout  == 0)
         {
-            if(checksum < 10)
+            if(checksum < 16)
             {
                 Serial.print('0');
             }
