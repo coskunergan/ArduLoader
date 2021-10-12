@@ -24,18 +24,29 @@
 //------ Config ------
 #define STREAM_TIMEOUT      50  // 500mS
 #define FAIL_BLINK_PERIDOD  5   // 50mS
-#define LOAD_BLINK_PERIDOD  50  // 500mS
+#define LOAD_BLINK_PERIDOD  20  // 500mS
 #define BEEP_FAIL_PERIDOD   100 // 1S
 #define BEEP_SUCCES_PERIDOD 5   // 50mS
 #define RX_BUFFER_SIZE      64  // bytes
 #define CLK_PIN             3   // O-PIN
 #define DTA_PIN             2   // IO-PIN
+#define RED_LED_PIN         7   // O-PIN
+#define GREEN_LED_PIN       6   // O-PIN
 #define VCC_PIN             4   // O-PIN
 #define BEEP_PIN            5   // O-PIN
 #define BOOT_KEY            "BOOT"  // 4 Char String 
 #define BEEP_KEY            "Beep"  // 4 Char String 
 //--------------------
 #define KEYBOARD_STREAM_TIMEOUT   2  // 20mS
+
+#define RED_LED_OFF()  (FastGPIO::Pin<RED_LED_PIN>::setOutputValueHigh())
+#define RED_LED_ON()  (FastGPIO::Pin<RED_LED_PIN>::setOutputValueLow())
+
+#define GREEN_LED_OFF()  (FastGPIO::Pin<GREEN_LED_PIN>::setOutputValueHigh())
+#define GREEN_LED_ON()  (FastGPIO::Pin<GREEN_LED_PIN>::setOutputValueLow())
+
+#define RED_LED_TOGGLE() (FastGPIO::Pin<RED_LED_PIN>::setOutputValueToggle())
+#define GREEN_LED_TOGGLE() (FastGPIO::Pin<GREEN_LED_PIN>::setOutputValueToggle())
 
 #define CLK_HIGH()  (FastGPIO::Pin<CLK_PIN>::setOutputValueHigh())
 #define CLK_LOW()  (FastGPIO::Pin<CLK_PIN>::setOutputValueLow())
@@ -46,8 +57,8 @@
 #define DTA_INPUT() (pinMode(DTA_PIN, INPUT))//(FastGPIO::Pin<DTA_PIN>::setInput())
 #define DTA_OUTPUT() (pinMode(DTA_PIN, OUTPUT))//(FastGPIO::Pin<DTA_PIN>::setOutputValue(0))
 
-#define VCC_LOW()  (FastGPIO::Pin<VCC_PIN>::setOutputValueHigh())
-#define VCC_HIGH()  (FastGPIO::Pin<VCC_PIN>::setOutputValueLow())
+#define VCC_ON()  (FastGPIO::Pin<VCC_PIN>::setOutputValueHigh())
+#define VCC_OFF()  (FastGPIO::Pin<VCC_PIN>::setOutputValueLow())
 
 #define BEEP_ON()  (FastGPIO::Pin<BEEP_PIN>::setOutputValueHigh())
 #define BEEP_OFF()  (FastGPIO::Pin<BEEP_PIN>::setOutputValueLow())
@@ -60,7 +71,7 @@
 typedef enum
 {
     LED_OFF,
-    LED_ON,
+    LED_SUCCES,
     LED_FAIL,
     LED_BUSY
 } Led_State_t;
@@ -135,6 +146,14 @@ void KbdRptParser::OnKeyDown(uint8_t mod, uint8_t key)
 
     if(c && (c != 0xD))
     {
+        if(c == '/')
+        {
+            c = '.';
+        }
+        else if(c >= 97 && c <= 122)
+        {
+            c -= 32;
+        }
         Serial.print((char)c);
         checksum ^= c;
         KeyboadStreamTimeout = KEYBOARD_STREAM_TIMEOUT;
@@ -212,15 +231,21 @@ void ISR_Time_Tick(void) // ISR per 10mS
     switch(Led_State)
     {
         case LED_OFF:
+            RED_LED_OFF();
+            GREEN_LED_OFF();        
             digitalWrite(LED_BUILTIN, LOW);
             break;
-        case LED_ON:
+        case LED_SUCCES:
+            RED_LED_OFF();
+            GREEN_LED_ON();
             digitalWrite(LED_BUILTIN, HIGH);
             break;
         case LED_FAIL:
             if(LedTimeout == 0)
             {
                 LedTimeout = FAIL_BLINK_PERIDOD;
+                RED_LED_ON();
+                GREEN_LED_OFF();
                 digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
             }
             else
@@ -232,6 +257,8 @@ void ISR_Time_Tick(void) // ISR per 10mS
             if(LedTimeout == 0)
             {
                 LedTimeout = LOAD_BLINK_PERIDOD;
+                RED_LED_TOGGLE();
+                GREEN_LED_TOGGLE();                
                 digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
             }
             else
@@ -250,7 +277,7 @@ void SendPreamble(void)
     pinMode(DTA_PIN, OUTPUT);
     pinMode(CLK_PIN, OUTPUT);
     DTA_HIGH();
-    VCC_HIGH();
+    VCC_ON();
     for(i = 0; i < 315; i++)
     {
         DTA_TOGGLE(); // 750Hz
@@ -324,6 +351,7 @@ void SendByte(uint8_t temp)
         delayMicroseconds(2);
         CLK_LOW();
     }
+    delayMicroseconds(2);
     CLK_HIGH();
     delayMicroseconds(2);
     CLK_LOW();
@@ -375,11 +403,11 @@ void LoaderHandler(void)
             }
             else if(Parameters.Vddon)
             {
-                VCC_HIGH();
+                VCC_ON();
             }
             else
             {
-                VCC_LOW();
+                VCC_OFF();
             }
             break;
         case BURN:
@@ -401,11 +429,12 @@ void LoaderHandler(void)
                     if(Pop_Byte(&temp) == true)
                     {
                         SendByte(temp);
-                        delayMicroseconds(8);
+                        //delayMicroseconds(8);
                         crc.update(temp);
                         if(++byte_counter >= 64)
                         {
                             byte_counter = 0;
+                            Usb.Task();
                             SendData(WriteSeperate);
                         }
                         total_counter++;
@@ -418,11 +447,12 @@ void LoaderHandler(void)
                             delayMicroseconds(30);
                         }
                         SendData(WriteFinish);
-                        VCC_LOW();
+                        StreamTimeout = 0;
+                        VCC_OFF();
                         pinMode(DTA_PIN, INPUT);
                         pinMode(CLK_PIN, INPUT);
                         delay(500);
-                        Led_State = LED_ON;
+                        Led_State = LED_SUCCES;
                         Procces_State = IDLE;
                     }
                     break;
@@ -447,6 +477,7 @@ void LoaderHandler(void)
                     crc.update(temp);
                     if((total_counter % 64) == 0)
                     {
+                        Usb.Task();
                         SendData(ReadSeperate);
                     }
                 }
@@ -458,12 +489,12 @@ void LoaderHandler(void)
                 }
                 else
                 {
-                    Led_State = LED_ON;
+                    Led_State = LED_SUCCES;
                     BeeperTimeout = BEEP_SUCCES_PERIDOD;
                     Serial.println(F("SUCCES"));
                 }
             }
-            VCC_LOW();
+            VCC_OFF();
             pinMode(DTA_PIN, INPUT);
             pinMode(CLK_PIN, INPUT);
             delay(500);
@@ -499,6 +530,7 @@ void DataHandler(void)
                         else if(byte_counter == 3)
                         {
                             byte_counter = 0;
+                            StreamTimeout = 0;
                             BeeperTimeout = BEEP_SUCCES_PERIDOD;
                         }
                     }
@@ -529,10 +561,10 @@ void DataHandler(void)
                     break;
                 case 12:
                     Parameters.Value = incomingByte;
-                    Serial.print(F("Size:"));
-                    Serial.println(Image_Size, DEC);
-                    Serial.print(F("CRC:"));
-                    Serial.println(Crc32, HEX);
+                    //Serial.print(F("Size:"));
+                    //Serial.println(Image_Size, DEC);
+                    //Serial.print(F("CRC:"));
+                    //Serial.println(Crc32, HEX);
                     if(Parameters.Burn)
                     {
                         Stream_State = DOWNLOADING;
@@ -541,7 +573,7 @@ void DataHandler(void)
                     {
                         byte_counter = 0;
                         StreamTimeout = 0;
-                        Led_State = LED_ON;
+                        Led_State = LED_SUCCES;
                     }
                     break;
             }
@@ -573,6 +605,12 @@ void setup(void)
     pinMode(DTA_PIN, INPUT);
     pinMode(VCC_PIN, OUTPUT);
     pinMode(BEEP_PIN, OUTPUT);
+    pinMode(RED_LED_PIN, OUTPUT);
+    pinMode(GREEN_LED_PIN, OUTPUT);
+
+    GREEN_LED_ON();
+    RED_LED_ON();
+    
     Serial.begin(115200);
     //Serial.println(F("Restart!\r\nV1.0\r\n\r\n\r\n"));
 
@@ -580,10 +618,8 @@ void setup(void)
     Timer1.attachInterrupt(ISR_Time_Tick);
 
     Led_State = LED_OFF;
-    Procces_State = IDLE;
-    Stream_State = WAIT;
-    Parameters.Beepon = true;
-    RxStart = RxEnd = 0;
+
+
     BeeperTimeout = LedTimeout = StreamTimeout = 0;
     KeyboadStreamTimeout = checksum = 0;
 
@@ -599,11 +635,21 @@ void setup(void)
     }
     delay(200);
     HidKeyboard.SetReportParser(0, &Prs);
+    GREEN_LED_OFF();
+    RED_LED_OFF();
+
+    Stream_State = WAIT;
+    Parameters.Beepon = true;
+    RxStart = RxEnd = 0;  
+    Procces_State = IDLE;  
 }
 /***********************************************************/
 void loop(void)
 {
-    Usb.Task();
+    if((Burn_Stage != DATA_WRITE) || (Procces_State != BURN))
+    {
+        Usb.Task();
+    }
     DataHandler();
     LoaderHandler();
     wdt_reset();
