@@ -1,20 +1,26 @@
 ;; Coskun ERGAN 
-;; 8051 Bootloader Script
-;; 21.12.2020
+;; Holtek Bootloader Script
+;; 13.11.2021
 
 timeout = 1
 
-crc32file crc 'BinaryFile.bin'
+getdir dir
+
+makepath path dir '/OUTPUT/GTM_SW_Project.bin'
+
+crc32file crc path
 if result = -1 then
     messagebox 'file open error' 'CRC32 = '
 else
 ;;   sprintf '0x%08X' crc
 ;;   messagebox inputstr 'CRC32 = '
 
-connect '/C=5 /CFLOWCTRL=none /E /DS /AUTOWINCLOSE=on'
-setspeed 115200
+connect '/C=13 /CFLOWCTRL=none /E /DS /AUTOWINCLOSE=on'
+setspeed 76800
 show -1
 
+send $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA 
+mpause 20
 send $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA 
 mpause 20
 send $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA 
@@ -30,7 +36,7 @@ send crc>>8
 send crc>>16
 send crc>>24
 
-filestat 'BinaryFile.bin' size
+filestat path size
 
 send size
 send size>>8
@@ -38,24 +44,26 @@ send size>>16
 send size>>24
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-send $0F  
+send $1F  
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  7   6   5   4   3   2   1   0     Command Bit Number
 ;;+---+---+---+---+---+---+---+---+
 ;;| x | x | x | x | 1 | 1 | 1 | 1 |
 ;;+---+---+---+---+---+---+---+---+
-;;                  |   |   |   |       
-;;                  |   |   |   +--- Burn active  
-;;                  |   |   +------- Check Active  
-;;                  |   +----------- Power On 
-;;                  +--------------- Beeper On 
-                  
+;;              |   |   |   |   |       
+;;              |   |   |   |   +--- Burn active  
+;;              |   |   |   +------- Check Active  
+;;              |   |   +----------- Power On 
+;;              |   +--------------- Beeper On 
+;;				+--------------------1 => Holtek, 0=> BYD MCU
 
-mpause 300
+mpause 620
 
-sendfile 'BinaryFile.bin' 1
+sendfile path 1
 
 endif
+
+mpause 100
 
 closett
 
