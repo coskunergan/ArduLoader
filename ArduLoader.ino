@@ -137,10 +137,10 @@ void Push_Byte(uint8_t byt)
     //return;
     //}
     RxBuffer[RxEnd] = byt;
-     if(++RxEnd >= RX_BUFFER_SIZE)
-     {
-         RxEnd = 0;
-     }
+    if(++RxEnd >= RX_BUFFER_SIZE)
+    {
+        RxEnd = 0;
+    }
 }
 /***********************************************************/
 void Fifo_Flush(void)
@@ -206,8 +206,8 @@ void ISR_Time_Tick(void) // ISR per 10mS
 }
 /***********************************************************/
 void LoaderHandler(void)
-{    
-    static uint8_t byte_counter;    
+{
+    static uint8_t byte_counter;
     uint8_t temp;
 
     switch(Procces_State)
@@ -263,7 +263,7 @@ void LoaderHandler(void)
                     {
                         if(Parameters.holtek)
                         {
-                            SendByte_Holtek(temp);
+                           SendByte_Holtek(temp);
                         }
                         else
                         {
@@ -281,17 +281,13 @@ void LoaderHandler(void)
                             else
                             {
                                 SendData_BYD(WriteSeperate);
-                            }                            
-                        }    
-                        total_counter++;                    
+                            }
+                        }
+                        total_counter++;
                     }
                     else if(total_counter >= Image_Size)
                     {
-                        if(Parameters.holtek)
-                        {
-                            WriteFinish_Holtek();
-                        }
-                        else
+                        if(!Parameters.holtek)
                         {
                             while(byte_counter++ < 64)
                             {
@@ -304,13 +300,42 @@ void LoaderHandler(void)
                         pinMode(DTA_PIN, INPUT);
                         pinMode(CLK_PIN, INPUT);
                         delay(500);
-                        Led_State = LED_ON;
-                        Procces_State = IDLE;
+                        if(Crc32 != crc.finalize())
+                        {
+                            Led_State = LED_FAIL;
+                            BeeperTimeout = BEEP_FAIL_PERIDOD;
+                            Parameters.Check = false;
+                        }
+                        else
+                        {
+                            Led_State = LED_ON;
+                            Procces_State = IDLE;
+                        }
                     }
                     break;
             }
             break;
         case CHECK:
+            if(Parameters.holtek)
+            {
+                ReadChip_Holtek(Image_Size);
+            }
+            else
+            {
+                SendPreamble_BYD();
+                SendData_BYD(ReadInitalize);
+                crc.reset();
+                total_counter = 0;
+                while(total_counter++ < Image_Size)
+                {
+                    temp = ReadByte_BYD();
+                    crc.update(temp);
+                    if((total_counter % 64) == 0)
+                    {
+                        SendData_BYD(ReadSeperate);
+                    }
+                }
+            }
             if(Crc32 != crc.finalize())
             {
                 Led_State = LED_FAIL;
@@ -318,36 +343,8 @@ void LoaderHandler(void)
             }
             else
             {
-                if(Parameters.holtek)
-                {
-                    ReadChip_Holtek(Image_Size);
-                }
-                else
-                {
-                    SendPreamble_BYD();
-                    SendData_BYD(ReadInitalize);
-                    crc.reset();
-                    total_counter = 0;
-                    while(total_counter++ < Image_Size)
-                    {
-                        temp = ReadByte_BYD();
-                        crc.update(temp);
-                        if((total_counter % 64) == 0)
-                        {
-                            SendData_BYD(ReadSeperate);
-                        }
-                    }
-                }
-                if(Crc32 != crc.finalize())
-                {
-                    Led_State = LED_FAIL;
-                    BeeperTimeout = BEEP_FAIL_PERIDOD;
-                }
-                else
-                {
-                    Led_State = LED_ON;
-                    BeeperTimeout = BEEP_SUCCES_PERIDOD;
-                }
+                Led_State = LED_ON;
+                BeeperTimeout = BEEP_SUCCES_PERIDOD;
             }
             VCC_OFF();
             pinMode(DTA_PIN, INPUT);
@@ -477,8 +474,8 @@ void loop(void)
 void serialEvent(void)
 {
     while(Serial.available())
-    {        
-        Push_Byte(Serial.read());        
+    {
+        Push_Byte(Serial.read());
     }
     StreamTimeout = STREAM_TIMEOUT;
 }
