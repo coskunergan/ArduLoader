@@ -184,50 +184,50 @@ void WritePrepare_Holtek(void)
     SendPreamble_Holtek(0);  
 }
 /***********************************************************/
-// void WriteFinish_Holtek(void)
-// {
-//     CLK_LOW();
-//     delayMicroseconds(1000);
-//     SendData_Holtek(WriteStep1);
-//     SendPreamble_Holtek(1UL << 19); // 20 bit 1
-//     DTA_INPUT();
-//     for(int i = 0; i < 8; i++)
-//     {
-//         ReadByte_Holtek();
-//         ReadByte_Holtek();
-//         ReadByte_Holtek();
-//         ReadByte_Holtek();
-//         ReadByte_Holtek();
-//         ReadByte_Holtek();
-//         ReadByte_Holtek();
-//         ReadByte_Holtek();
-//         TwoBitFast_Holtek();
-//     }
-//     //------------------
-//     CLK_LOW();
-//     SendData_Holtek(EraseStep12);
-//     SendPreamble_Holtek(1); // 1.bit
-//     DTA_LOW();
-//     //CLK_LOW();
-//     //delayMicroseconds(5);
-//     //CLK_HIGH();
-//     delayMicroseconds(2500);
-//     CLK_LOW();
-//     delayMicroseconds(3);
-//     CLK_HIGH();
-//     delayMicroseconds(3);
-//     DTA_HIGH();
-//     delayMicroseconds(2500);
-//     CLK_LOW();
-//     delayMicroseconds(5);
-//     CLK_HIGH();
-//     delayMicroseconds(5);
-//     DTA_LOW();
-//     delayMicroseconds(400);
-//     CLK_LOW();
-//     delayMicroseconds(1000);
-//     //------------------
-// }
+void WriteFinish_Holtek(void)
+{
+    CLK_LOW();
+    delayMicroseconds(1000);
+    SendData_Holtek(WriteStep1);
+    SendPreamble_Holtek(1UL << 19); // 20 bit 1
+    DTA_INPUT();
+    for(int i = 0; i < 8; i++)
+    {
+        ReadByte_Holtek();
+        ReadByte_Holtek();
+        ReadByte_Holtek();
+        ReadByte_Holtek();
+        ReadByte_Holtek();
+        ReadByte_Holtek();
+        ReadByte_Holtek();
+        ReadByte_Holtek();
+        TwoBitFast_Holtek();
+    }
+    //------------------
+    CLK_LOW();
+    SendData_Holtek(EraseStep12);
+    SendPreamble_Holtek(1); // 1.bit
+    DTA_LOW();
+    //CLK_LOW();
+    //delayMicroseconds(5);
+    //CLK_HIGH();
+    delayMicroseconds(2500);
+    CLK_LOW();
+    delayMicroseconds(3);
+    CLK_HIGH();
+    delayMicroseconds(3);
+    DTA_HIGH();
+    delayMicroseconds(2500);
+    CLK_LOW();
+    delayMicroseconds(5);
+    CLK_HIGH();
+    delayMicroseconds(5);
+    DTA_LOW();
+    delayMicroseconds(400);
+    CLK_LOW();
+    delayMicroseconds(1000);
+    //------------------
+}
 /***********************************************************/
 void ReadChip_Holtek(uint32_t file_size)
 {

@@ -18,15 +18,15 @@
 #define STREAM_TIMEOUT      75  // 750mS
 #define FAIL_BLINK_PERIDOD  5   // 50mS
 #define LOAD_BLINK_PERIDOD  50  // 500mS
-#define BEEP_FAIL_PERIDOD   100 // 1S
+#define BEEP_FAIL_PERIDOD   2 // 1S
 #define BEEP_SUCCES_PERIDOD 5   // 50mS
-#define RX_BUFFER_SIZE      64 // bytes
+#define RX_BUFFER_SIZE      254 // bytes
 #define CLK_PIN             2   // O-PIN
 #define DTA_PIN             3   // IO-PIN
 #define VCC_PIN             4   // O-PIN
 #define BEEP_PIN            5   // O-PIN
 #define BOOT_KEY            "BOOT"  // 4 Char String 
-#define VDD_ON_DELAY        20
+#define VDD_ON_DELAY        80
 //--------------------
 
 #define CLK_HIGH()  (FastGPIO::Pin<CLK_PIN>::setOutputValueHigh())
@@ -263,7 +263,7 @@ void LoaderHandler(void)
                     {
                         if(Parameters.holtek)
                         {
-                           SendByte_Holtek(temp);
+                            SendByte_Holtek(temp);
                         }
                         else
                         {
@@ -296,10 +296,17 @@ void LoaderHandler(void)
                             }
                             SendData_BYD(WriteFinish);
                         }
-                        VCC_OFF();
-                        pinMode(DTA_PIN, INPUT);
-                        pinMode(CLK_PIN, INPUT);
+                        else
+                        {
+                            WriteFinish_Holtek();
+                        }
+                        VCC_OFF();    
+                        DTA_OUTPUT();                    
+                        DTA_LOW();  
+                        CLK_LOW();  
                         delay(500);
+                        pinMode(DTA_PIN, INPUT);
+                        pinMode(CLK_PIN, INPUT);                        
                         if(Crc32 != crc.finalize())
                         {
                             Led_State = LED_FAIL;
@@ -451,7 +458,7 @@ void setup(void)
     pinMode(DTA_PIN, INPUT);
     pinMode(VCC_PIN, OUTPUT);
     pinMode(BEEP_PIN, OUTPUT);
-    Serial.begin(76800);
+    Serial.begin(115200);
     Serial.println(F("Restart!\r\n\r\n\r\n\r\n"));
 
     Timer1.initialize(10000); // per 10mS
