@@ -18,9 +18,9 @@
 #define STREAM_TIMEOUT      75  // 750mS
 #define FAIL_BLINK_PERIDOD  5   // 50mS
 #define LOAD_BLINK_PERIDOD  50  // 500mS
-#define BEEP_FAIL_PERIDOD   2 // 1S
+#define BEEP_FAIL_PERIDOD   100 // 1S
 #define BEEP_SUCCES_PERIDOD 5   // 50mS
-#define RX_BUFFER_SIZE      254 // bytes
+#define RX_BUFFER_SIZE      512 // bytes (~450)
 #define CLK_PIN             2   // O-PIN
 #define DTA_PIN             3   // IO-PIN
 #define VCC_PIN             4   // O-PIN
@@ -104,8 +104,8 @@ Burn_Stage_t Burn_Stage;
 CRC32 crc;
 uint8_t BurnChapter;
 uint8_t RxBuffer[RX_BUFFER_SIZE];
-uint8_t RxStart;
-uint8_t RxEnd;
+uint16_t RxStart;
+uint16_t RxEnd;
 uint8_t BeeperTimeout;
 uint8_t StreamTimeout;
 uint8_t LedTimeout;
@@ -276,7 +276,7 @@ void LoaderHandler(void)
                             byte_counter = 0;
                             if(Parameters.holtek)
                             {
-                                TwoBitSlow_Holtek();
+                                TwoBitSlow_Holtek_W();
                             }
                             else
                             {
@@ -296,17 +296,12 @@ void LoaderHandler(void)
                             }
                             SendData_BYD(WriteFinish);
                         }
-                        else
-                        {
-                            WriteFinish_Holtek();
-                        }
-                        VCC_OFF();    
-                        DTA_OUTPUT();                    
-                        DTA_LOW();  
-                        CLK_LOW();  
-                        delay(500);
                         pinMode(DTA_PIN, INPUT);
-                        pinMode(CLK_PIN, INPUT);                        
+                        pinMode(CLK_PIN, INPUT);                         
+                        VCC_OFF();    
+                        delay(500);     
+                        // Serial.print(F("CRC_LOAD:"));
+                        // Serial.println(crc.finalize(), HEX);                  
                         if(Crc32 != crc.finalize())
                         {
                             Led_State = LED_FAIL;
@@ -343,6 +338,8 @@ void LoaderHandler(void)
                     }
                 }
             }
+            Serial.print(F("CRC_READ:"));
+            Serial.println(crc.finalize(), HEX);
             if(Crc32 != crc.finalize())
             {
                 Led_State = LED_FAIL;
@@ -353,9 +350,9 @@ void LoaderHandler(void)
                 Led_State = LED_ON;
                 BeeperTimeout = BEEP_SUCCES_PERIDOD;
             }
-            VCC_OFF();
             pinMode(DTA_PIN, INPUT);
-            pinMode(CLK_PIN, INPUT);
+            pinMode(CLK_PIN, INPUT);            
+            VCC_OFF();
             delay(500);
             Procces_State = IDLE;
             break;
@@ -413,7 +410,7 @@ void DataHandler(void)
                     Parameters.Value = incomingByte;
                     Serial.print(F("Size:"));
                     Serial.println(Image_Size, DEC);
-                    Serial.print(F("CRC:"));
+                    Serial.print(F("CRC_FILE:"));
                     Serial.println(Crc32, HEX);
                     if(Parameters.holtek)
                     {

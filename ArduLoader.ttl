@@ -15,8 +15,8 @@ else
 ;;   sprintf '0x%08X' crc
 ;;   messagebox inputstr 'CRC32 = '
 
-connect '/C=13 /CFLOWCTRL=none /E /DS /AUTOWINCLOSE=on'
-setspeed 76800
+connect '/C=6 /CFLOWCTRL=none /E /DS /AUTOWINCLOSE=on'
+setspeed 115200
 show -1
 
 send $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA $AA 
@@ -57,13 +57,13 @@ send $1F
 ;;              |   +--------------- Beeper On 
 ;;				+--------------------1 => Holtek, 0=> BYD MCU
 
-mpause 620
+mpause 680
 
 sendfile path 1
 
 endif
 
-mpause 100
+mpause 3000
 
 closett
 
