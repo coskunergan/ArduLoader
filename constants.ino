@@ -47,6 +47,11 @@ const PROGMEM char WriteStep1[]  =
 const PROGMEM char WriteStep2[]  =
 "0100100010001010010111000001010100000000";
 
+//------------------
+
+const PROGMEM char CalibStep1[]  =
+"0100100010001010010111000000000100000000";
+
 const PROGMEM char ReadSeperate[]  =
 " \
 0011010111100100 0011101111 \

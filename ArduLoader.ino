@@ -26,7 +26,7 @@
 #define VCC_PIN             4   // O-PIN
 #define BEEP_PIN            5   // O-PIN
 #define BOOT_KEY            "BOOT"  // 4 Char String 
-#define VDD_ON_DELAY        80
+#define VDD_ON_DELAY        50
 //--------------------
 
 #define CLK_HIGH()  (FastGPIO::Pin<CLK_PIN>::setOutputValueHigh())
@@ -242,6 +242,7 @@ void LoaderHandler(void)
                     if(Parameters.holtek)
                     {
                         EreaseFullChip_Holtek();
+                        //HIRC_Calibration_Holtek();
                         WritePrepare_Holtek();
                     }
                     else
@@ -295,6 +296,10 @@ void LoaderHandler(void)
                                 delayMicroseconds(30);
                             }
                             SendData_BYD(WriteFinish);
+                        }
+                        else
+                        {
+                          WriteFinish_Holtek();
                         }
                         pinMode(DTA_PIN, INPUT);
                         pinMode(CLK_PIN, INPUT);                         
