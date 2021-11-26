@@ -94,8 +94,7 @@ const char Key_Reg[] = BOOT_KEY;
 
 //---------------------------------
 extern const char WriteStart[], WriteSeperate[], WriteFinish[], WriteInitalize1[], WriteInitalize2[], WriteTestData[];
-extern const char ReadInitalize[], ReadSeperate[], EraseStep4[], EraseStep5[], EraseStep6[], EraseStep7[], EraseStep8[], EraseStep9[], EraseStep10[], EraseStep11[], EraseStep12[];
-extern const char WriteStep1[], WriteStep2[];
+extern const char ReadInitalize[], ReadSeperate[];
 Led_State_t Led_State;
 Procces_State_t Procces_State;
 Stream_State_t Stream_State;
@@ -242,7 +241,6 @@ void LoaderHandler(void)
                     if(Parameters.holtek)
                     {
                         EreaseFullChip_Holtek();
-                        //HIRC_Calibration_Holtek();
                         WritePrepare_Holtek();
                     }
                     else
@@ -296,14 +294,14 @@ void LoaderHandler(void)
                                 delayMicroseconds(30);
                             }
                             SendData_BYD(WriteFinish);
-                        }    
-                        CLK_LOW();                                      
+                        }
+                        CLK_LOW();
                         pinMode(DTA_PIN, INPUT);
-                        pinMode(CLK_PIN, INPUT);                         
-                        VCC_OFF();    
-                        delay(500);     
+                        pinMode(CLK_PIN, INPUT);
+                        VCC_OFF();
+                        delay(500);
                         // Serial.print(F("CRC_LOAD:"));
-                        // Serial.println(crc.finalize(), HEX);                  
+                        // Serial.println(crc.finalize(), HEX);
                         if(Crc32 != crc.finalize())
                         {
                             Led_State = LED_FAIL;
@@ -347,14 +345,18 @@ void LoaderHandler(void)
                 Led_State = LED_FAIL;
                 BeeperTimeout = BEEP_FAIL_PERIDOD;
             }
-            else
+            else if(WriteFinish_Holtek() == true)
             {
-                WriteFinish_Holtek();
                 Led_State = LED_ON;
                 BeeperTimeout = BEEP_SUCCES_PERIDOD;
             }
+            else
+            {
+                Led_State = LED_FAIL;
+                BeeperTimeout = BEEP_FAIL_PERIDOD;
+            }
             pinMode(DTA_PIN, INPUT);
-            pinMode(CLK_PIN, INPUT);            
+            pinMode(CLK_PIN, INPUT);
             VCC_OFF();
             delay(500);
             Procces_State = IDLE;
