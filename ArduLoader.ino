@@ -20,7 +20,7 @@
 #define LOAD_BLINK_PERIDOD  50  // 500mS
 #define BEEP_FAIL_PERIDOD   100 // 1S
 #define BEEP_SUCCES_PERIDOD 5   // 50mS
-#define RX_BUFFER_SIZE      512 // bytes (~450)
+#define RX_BUFFER_SIZE      768 // bytes (~450)
 #define CLK_PIN             2   // O-PIN
 #define DTA_PIN             3   // IO-PIN
 #define VCC_PIN             4   // O-PIN
@@ -296,11 +296,8 @@ void LoaderHandler(void)
                                 delayMicroseconds(30);
                             }
                             SendData_BYD(WriteFinish);
-                        }
-                        else
-                        {
-                          WriteFinish_Holtek();
-                        }
+                        }    
+                        CLK_LOW();                                      
                         pinMode(DTA_PIN, INPUT);
                         pinMode(CLK_PIN, INPUT);                         
                         VCC_OFF();    
@@ -352,6 +349,7 @@ void LoaderHandler(void)
             }
             else
             {
+                WriteFinish_Holtek();
                 Led_State = LED_ON;
                 BeeperTimeout = BEEP_SUCCES_PERIDOD;
             }
