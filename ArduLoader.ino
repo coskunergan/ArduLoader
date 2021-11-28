@@ -241,7 +241,7 @@ void LoaderHandler(void)
                     if(Parameters.holtek)
                     {
                         EreaseFullChip_Holtek();
-                        WriteOptions_Holtek();
+                        WriteCalibration_Holtek();
                         WritePrepare_Holtek();                        
                     }
                     else
