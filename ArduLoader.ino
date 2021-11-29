@@ -21,6 +21,7 @@
 #define BEEP_FAIL_PERIDOD   100 // 1S
 #define BEEP_SUCCES_PERIDOD 5   // 50mS
 #define RX_BUFFER_SIZE      1500 // bytes (~450)
+#define MTP_HEADER_SIZE     88
 #define CLK_PIN             2   // O-PIN
 #define DTA_PIN             3   // IO-PIN
 #define VCC_PIN             4   // O-PIN
@@ -103,6 +104,7 @@ Burn_Stage_t Burn_Stage;
 CRC32 crc;
 uint8_t BurnChapter;
 uint8_t RxBuffer[RX_BUFFER_SIZE];
+uint8_t MtpHeaderBuffer[MTP_HEADER_SIZE];
 uint16_t RxStart;
 uint16_t RxEnd;
 uint8_t BeeperTimeout;
@@ -113,6 +115,28 @@ uint32_t Crc32;
 uint32_t total_counter;
 /***********************************************************/
 /***********************************************************/
+/***********************************************************/
+uint16_t Sizeof_Buffer(void)
+{
+    if(RxEnd >= RxStart)
+    {
+        return (RxEnd - RxStart);
+    }
+    return ((RxEnd + RX_BUFFER_SIZE) - RxStart);
+}
+/***********************************************************/
+void Recovery_Buffer(uint16_t size)
+{
+    if(RxStart >= size)
+    {
+        RxStart -= size;
+    }
+    else
+    {
+        RxStart += RX_BUFFER_SIZE;
+        RxStart -= size;
+    }
+}
 /***********************************************************/
 bool Pop_Byte(uint8_t *byt)
 {
@@ -204,6 +228,24 @@ void ISR_Time_Tick(void) // ISR per 10mS
     //-----------------------
 }
 /***********************************************************/
+void TurnOn_Device(void)
+{
+    pinMode(DTA_PIN, OUTPUT);
+    pinMode(CLK_PIN, OUTPUT);
+    DTA_LOW();
+    CLK_LOW();
+    VCC_ON();
+    delay(VDD_ON_DELAY);
+}
+/***********************************************************/
+void TurnOff_Device(void)
+{
+    pinMode(DTA_PIN, INPUT);
+    pinMode(CLK_PIN, INPUT);
+    VCC_OFF();
+    delay(300);
+}
+/***********************************************************/
 void LoaderHandler(void)
 {
     static uint8_t byte_counter;
@@ -238,11 +280,14 @@ void LoaderHandler(void)
             switch(Burn_Stage)
             {
                 case BEGIN:
+                    TurnOn_Device();
                     if(Parameters.holtek)
                     {
                         EreaseFullChip_Holtek();
                         WriteCalibration_Holtek();
-                        WritePrepare_Holtek();                        
+                        TurnOff_Device();
+                        TurnOn_Device();
+                        WritePrepare_Holtek();
                     }
                     else
                     {
@@ -259,27 +304,40 @@ void LoaderHandler(void)
                     Burn_Stage = DATA_WRITE;
                     break;
                 case DATA_WRITE:
-                    if(Pop_Byte(&temp) == true)
+                    if(Pop_Byte(&temp))
                     {
+                        crc.update(temp);
                         if(Parameters.holtek)
                         {
-                            SendByte_Holtek(temp);
+                            if(total_counter < MTP_HEADER_SIZE)
+                            {
+                                MtpHeaderBuffer[total_counter] = temp;
+                                byte_counter = 255;
+                            }
+                            else
+                            {
+                                if(total_counter < (16382 + MTP_HEADER_SIZE))
+                                {
+                                    SendByte_Holtek(temp);
+                                }
+                                else
+                                {
+                                    byte_counter = 0;
+                                }
+                            }                            
+                            if(++byte_counter >= 64)
+                            {
+                                byte_counter = 0;
+                                TwoBitSlow_Holtek_W();
+                            }
                         }
                         else
                         {
                             SendByte_BYD(temp);
                             delayMicroseconds(8);
-                        }
-                        crc.update(temp);
-                        if(++byte_counter >= 64)
-                        {
-                            byte_counter = 0;
-                            if(Parameters.holtek)
+                            if(++byte_counter >= 64)
                             {
-                                TwoBitSlow_Holtek_W();
-                            }
-                            else
-                            {
+                                byte_counter = 0;
                                 SendData_BYD(WriteSeperate);
                             }
                         }
@@ -296,13 +354,9 @@ void LoaderHandler(void)
                             }
                             SendData_BYD(WriteFinish);
                         }
-                        CLK_LOW();
-                        pinMode(DTA_PIN, INPUT);
-                        pinMode(CLK_PIN, INPUT);
-                        VCC_OFF();
-                        delay(500);
-                        // Serial.print(F("CRC_LOAD:"));
-                        // Serial.println(crc.finalize(), HEX);
+                        TurnOff_Device();
+                        Serial.print(F("CRC_LOAD:"));
+                        Serial.println(crc.finalize(), HEX);
                         if(Crc32 != crc.finalize())
                         {
                             Led_State = LED_FAIL;
@@ -319,9 +373,21 @@ void LoaderHandler(void)
             }
             break;
         case CHECK:
+            TurnOn_Device();
             if(Parameters.holtek)
             {
-                ReadChip_Holtek(Image_Size);
+                crc.reset();
+                byte_counter = 0;
+                while(byte_counter < MTP_HEADER_SIZE)
+                {
+                    crc.update(MtpHeaderBuffer[byte_counter++]);
+                }
+                ReadChip_Holtek(16384 * (Image_Size / 16384));
+                Recovery_Buffer((Image_Size - MTP_HEADER_SIZE) % 16384);
+                while(Pop_Byte(&temp))
+                {
+                    crc.update(temp);
+                }
             }
             else
             {
@@ -356,10 +422,7 @@ void LoaderHandler(void)
                 Led_State = LED_FAIL;
                 BeeperTimeout = BEEP_FAIL_PERIDOD;
             }
-            pinMode(DTA_PIN, INPUT);
-            pinMode(CLK_PIN, INPUT);
-            VCC_OFF();
-            delay(500);
+            TurnOff_Device();
             Procces_State = IDLE;
             break;
     }
@@ -421,6 +484,14 @@ void DataHandler(void)
                     if(Parameters.holtek)
                     {
                         Serial.println(F("Holtek"));
+                        // if(Image_Size <= 32768)
+                        // {
+                        //     Image_Size = 16384 + MTP_HEADER_SIZE;
+                        // }
+                        // else
+                        // {
+                        //     Image_Size = 32768 + MTP_HEADER_SIZE;
+                        // }
                     }
                     if(Parameters.Burn)
                     {

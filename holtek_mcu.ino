@@ -69,7 +69,7 @@ void SendData_Holtek(const char *databuffer)
         if((i % 8) == 0)
         {
             delayMicroseconds(6);
-        }        
+        }
         i++;
         if(i == 33)
         {
@@ -117,7 +117,6 @@ void ReadFile_Holtek(uint32_t img_size)
 {
     uint8_t temp;
     total_counter = 0;
-    crc.reset();
     DTA_INPUT();
     while(++total_counter <= img_size)
     {
@@ -174,26 +173,31 @@ void WritePrepare_Holtek(void)
 /***********************************************************/
 void ReadChip_Holtek(uint32_t file_size)
 {
-    pinMode(DTA_PIN, OUTPUT);
-    pinMode(CLK_PIN, OUTPUT);
+    SendData_Holtek(ReadStep1);
+    SendPreamble_Holtek(0);
+    DTA_INPUT();
+    for(int i = 0; i < 8; i++)
+    {
+        ReadByte_Holtek();
+        ReadByte_Holtek();
+        ReadByte_Holtek();
+        ReadByte_Holtek();
+        ReadByte_Holtek();
+        ReadByte_Holtek();
+        ReadByte_Holtek();
+        ReadByte_Holtek();
+        TwoBitFast_Holtek();
+    }
     CLK_LOW();
-    DTA_LOW();
-    VCC_ON();
-    delay(VDD_ON_DELAY);
+    delayMicroseconds(300);
     SendData_Holtek(ReadInitalize);
     SendPreamble_Holtek(0);
     ReadFile_Holtek(file_size);
-    CLK_LOW();    
+    CLK_LOW();
 }
 /***********************************************************/
 void EreaseFullChip_Holtek(void)
 {
-    pinMode(DTA_PIN, OUTPUT);
-    pinMode(CLK_PIN, OUTPUT);
-    DTA_LOW();
-    CLK_LOW();
-    VCC_ON();
-    delay(VDD_ON_DELAY);
     //------------------
     SendData_Holtek(WriteStep1);
     SendPreamble_Holtek(1UL << 4); // 5.bit
@@ -343,129 +347,18 @@ void EreaseFullChip_Holtek(void)
     delayMicroseconds(5);
     DTA_LOW();
     delayMicroseconds(400);
-    CLK_LOW();  
-    delayMicroseconds(50);          
+    CLK_LOW();
+    delayMicroseconds(50);
 }
 /***********************************************************/
 bool WriteCalibration_Holtek(void)
 {
-    uint8_t temp;    
+    uint8_t temp;
     SendData_Holtek(EraseStep1);
     SendPreamble_Holtek(1UL << 19);
     SendByte_Holtek(B00000000);
     SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00000000);// ??
-    SendByte_Holtek(B00010101);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00101010);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00111111);
-    TwoBitSlow_Holtek_W();
-    SendByte_Holtek(B00000000);// ??
-    SendByte_Holtek(B00000111);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00010010);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00101101);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00111000);
-    TwoBitSlow_Holtek_W();
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00111000);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00101101);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00010010);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00000111);
-    TwoBitSlow_Holtek_W();
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00111111);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00101010);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00010101);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00000000);
-    TwoBitSlow_Holtek_W();
-    SendByte_Holtek(0);
-    SendByte_Holtek(0);
-    SendByte_Holtek(0);
-    SendByte_Holtek(0);
-    SendByte_Holtek(0);
-    SendByte_Holtek(0);
-    SendByte_Holtek(0);
-    SendByte_Holtek(0);
-    TwoBitSlow_Holtek_W();
-    SendByte_Holtek(0);
-    SendByte_Holtek(0);
-    SendByte_Holtek(0);
-    SendByte_Holtek(0);
-    SendByte_Holtek(0);
-    SendByte_Holtek(0);
-    SendByte_Holtek(0);
-    SendByte_Holtek(0);
-    TwoBitSlow_Holtek_W();
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00000011);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00111001);
-    SendByte_Holtek(B00000000);
-    TwoBitSlow_Holtek_W();
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B11100000);
-    SendByte_Holtek(B00011010);
-    TwoBitSlow_Holtek_W();    
-    delayMicroseconds(100);
-    CLK_LOW();
-    DTA_LOW();
-    delayMicroseconds(300);
-    SendData_Holtek(ReadStep1);
-    SendPreamble_Holtek(1UL << 19);
-    DTA_INPUT();
-    for(int i = 0; i < 8; i++)
-    {
-        ReadByte_Holtek();
-        ReadByte_Holtek();
-        ReadByte_Holtek();
-        ReadByte_Holtek();
-        ReadByte_Holtek();
-        if(i == 3)
-        {
-            temp = ReadByte_Holtek();
-        }
-        else
-        {
-            ReadByte_Holtek();
-        }
-        ReadByte_Holtek();
-        ReadByte_Holtek();
-        TwoBitFast_Holtek();
-    }
-    CLK_LOW();
-    if(temp != 0x15)
-    {
-        return false;        
-    }
-    return true;
-}
-/***********************************************************/
-bool WriteOptions_Holtek(void)
-{
-    uint8_t temp;    
-    SendData_Holtek(EraseStep1);
-    SendPreamble_Holtek(1UL << 19);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00000000);// ??
+    SendByte_Holtek(B00100000);// ??
     SendByte_Holtek(B00010101);
     SendByte_Holtek(B00000000);
     SendByte_Holtek(B00101010);
@@ -521,9 +414,9 @@ bool WriteOptions_Holtek(void)
     SendByte_Holtek(B00000000);
     SendByte_Holtek(B00000000);
     SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00000011);
+    SendByte_Holtek(B00000010);
     SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00111001);
+    SendByte_Holtek(B00111101);
     SendByte_Holtek(B00000000);
     TwoBitSlow_Holtek_W();
     SendByte_Holtek(B00000000);
@@ -534,13 +427,13 @@ bool WriteOptions_Holtek(void)
     SendByte_Holtek(B00000000);
     SendByte_Holtek(B11100000);
     SendByte_Holtek(B00011010);
-    TwoBitSlow_Holtek_W();    
+    TwoBitSlow_Holtek_W();
     delayMicroseconds(100);
     CLK_LOW();
     DTA_LOW();
     delayMicroseconds(300);
     SendData_Holtek(ReadStep1);
-    SendPreamble_Holtek(1UL << 19);
+    SendPreamble_Holtek(0);
     DTA_INPUT();
     for(int i = 0; i < 8; i++)
     {
@@ -564,7 +457,43 @@ bool WriteOptions_Holtek(void)
     CLK_LOW();
     if(temp != 0x15)
     {
-        return false;        
+        return false;
+    }
+    return true;
+}
+/***********************************************************/
+bool WriteOptions_Holtek(void)
+{
+    uint8_t temp;
+    CLK_LOW();
+    DTA_LOW();
+    delayMicroseconds(300);
+    SendData_Holtek(ReadStep1);
+    SendPreamble_Holtek(0);
+    DTA_INPUT();
+    for(int i = 0; i < 8; i++)
+    {
+        ReadByte_Holtek();
+        ReadByte_Holtek();
+        ReadByte_Holtek();
+        ReadByte_Holtek();
+        ReadByte_Holtek();
+        if(i == 3)
+        {
+            temp = ReadByte_Holtek();
+        }
+        else
+        {
+            ReadByte_Holtek();
+        }
+        ReadByte_Holtek();
+        ReadByte_Holtek();
+        TwoBitFast_Holtek();
+    }
+    CLK_LOW();
+    if(temp != 0x15)
+    {
+        return false;
     }
     return true;
 }

@@ -6,7 +6,7 @@ timeout = 1
 
 getdir dir
 
-makepath path dir '/OUTPUT/GTM_SW_Project.bin'
+makepath path dir '/OUTPUT/GTM_SW_Project.mtp'
 
 crc32file crc path
 if result = -1 then
@@ -44,7 +44,7 @@ send size>>16
 send size>>24
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-send $1F  
+send $17  
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  7   6   5   4   3   2   1   0     Command Bit Number
 ;;+---+---+---+---+---+---+---+---+
@@ -57,7 +57,7 @@ send $1F
 ;;              |   +--------------- Beeper On 
 ;;				+--------------------1 => Holtek, 0=> BYD MCU
 
-mpause 680
+mpause 300
 
 sendfile path 1
 
