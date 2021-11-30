@@ -20,8 +20,8 @@
 #define LOAD_BLINK_PERIDOD  50  // 500mS
 #define BEEP_FAIL_PERIDOD   100 // 1S
 #define BEEP_SUCCES_PERIDOD 5   // 50mS
-#define RX_BUFFER_SIZE      1500 // bytes (~450)
-#define MTP_HEADER_SIZE     88
+#define RX_BUFFER_SIZE      1024 // bytes 
+#define MTP_HEADER_BUFFER_SIZE  128 // bytes 
 #define CLK_PIN             2   // O-PIN
 #define DTA_PIN             3   // IO-PIN
 #define VCC_PIN             4   // O-PIN
@@ -67,6 +67,12 @@ typedef enum
 
 typedef enum
 {
+    BS86D20A,
+    BS66F360
+} Device_Type_t;
+
+typedef enum
+{
     WAIT,
     DOWNLOADING,
     TIMEOUT
@@ -104,7 +110,7 @@ Burn_Stage_t Burn_Stage;
 CRC32 crc;
 uint8_t BurnChapter;
 uint8_t RxBuffer[RX_BUFFER_SIZE];
-uint8_t MtpHeaderBuffer[MTP_HEADER_SIZE];
+uint8_t MtpHeaderBuffer[MTP_HEADER_BUFFER_SIZE];
 uint16_t RxStart;
 uint16_t RxEnd;
 uint8_t BeeperTimeout;
@@ -112,7 +118,10 @@ uint8_t StreamTimeout;
 uint8_t LedTimeout;
 uint32_t Image_Size;
 uint32_t Crc32;
-uint32_t total_counter;
+uint32_t Total_Counter;
+uint32_t FileSize_Counter;
+uint8_t Mtp_Header_Size;
+bool Mtp_Header_Flag;
 /***********************************************************/
 /***********************************************************/
 /***********************************************************/
@@ -284,7 +293,14 @@ void LoaderHandler(void)
                     if(Parameters.holtek)
                     {
                         EreaseFullChip_Holtek();
-                        WriteCalibration_Holtek();
+                        if(Image_Size > 32768)
+                        {
+                            WriteCalibration_Holtek(BS66F360);
+                        }
+                        else
+                        {
+                            WriteCalibration_Holtek(BS86D20A);
+                        }
                         TurnOff_Device();
                         TurnOn_Device();
                         WritePrepare_Holtek();
@@ -298,8 +314,10 @@ void LoaderHandler(void)
                         delay(30);
                         SendData_BYD(WriteStart);
                     }
-                    total_counter = 0;
+                    Total_Counter = 0;                    
+                    Mtp_Header_Size = 0;
                     byte_counter = 0;
+                    Mtp_Header_Flag = false;
                     crc.reset();
                     Burn_Stage = DATA_WRITE;
                     break;
@@ -309,22 +327,27 @@ void LoaderHandler(void)
                         crc.update(temp);
                         if(Parameters.holtek)
                         {
-                            if(total_counter < MTP_HEADER_SIZE)
-                            {
-                                MtpHeaderBuffer[total_counter] = temp;
+                            if(Mtp_Header_Flag == false)
+                            {                                
+                                MtpHeaderBuffer[Mtp_Header_Size] = temp;
+                                if(MtpHeaderBuffer[Mtp_Header_Size] == 0 && \
+                                        MtpHeaderBuffer[Mtp_Header_Size - 1] == 0 && \
+                                        MtpHeaderBuffer[Mtp_Header_Size - 2] == 0 && \
+                                        MtpHeaderBuffer[Mtp_Header_Size - 3] == 0)
+                                {
+                                    Mtp_Header_Flag = true;
+                                    FileSize_Counter = (16384 * (Image_Size / 16384)) + Mtp_Header_Size;
+                                }
                                 byte_counter = 255;
+                                Mtp_Header_Size++;
                             }
                             else
                             {
-                                if(total_counter < (16382 + MTP_HEADER_SIZE))
+                                if(Total_Counter < FileSize_Counter)
                                 {
                                     SendByte_Holtek(temp);
                                 }
-                                else
-                                {
-                                    byte_counter = 0;
-                                }
-                            }                            
+                            }
                             if(++byte_counter >= 64)
                             {
                                 byte_counter = 0;
@@ -341,9 +364,9 @@ void LoaderHandler(void)
                                 SendData_BYD(WriteSeperate);
                             }
                         }
-                        total_counter++;
+                        Total_Counter++;
                     }
-                    else if(total_counter >= Image_Size)
+                    else if(Total_Counter >= Image_Size)
                     {
                         if(!Parameters.holtek)
                         {
@@ -378,12 +401,12 @@ void LoaderHandler(void)
             {
                 crc.reset();
                 byte_counter = 0;
-                while(byte_counter < MTP_HEADER_SIZE)
+                while(byte_counter < Mtp_Header_Size)
                 {
                     crc.update(MtpHeaderBuffer[byte_counter++]);
                 }
                 ReadChip_Holtek(16384 * (Image_Size / 16384));
-                Recovery_Buffer((Image_Size - MTP_HEADER_SIZE) % 16384);
+                Recovery_Buffer((Image_Size - Mtp_Header_Size) % 16384);
                 while(Pop_Byte(&temp))
                 {
                     crc.update(temp);
@@ -394,7 +417,7 @@ void LoaderHandler(void)
                 SendPreamble_BYD();
                 SendData_BYD(ReadInitalize);
                 crc.reset();
-                total_counter = 0;
+                uint16_t total_counter = 0;
                 while(total_counter++ < Image_Size)
                 {
                     temp = ReadByte_BYD();
@@ -412,7 +435,7 @@ void LoaderHandler(void)
                 Led_State = LED_FAIL;
                 BeeperTimeout = BEEP_FAIL_PERIDOD;
             }
-            else if(WriteOptions_Holtek() == true)
+            else if(ReadCalibration_Holtek() == true)
             {
                 Led_State = LED_ON;
                 BeeperTimeout = BEEP_SUCCES_PERIDOD;

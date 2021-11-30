@@ -4,9 +4,7 @@
 /***********************************************************/
 void SendByte_Holtek(uint8_t temp)
 {
-    uint8_t i;
-    DTA_OUTPUT();
-    for(i = 0; i < 8; i++)
+    for(uint8_t i = 0; i < 8; i++)
     {
         if(temp & 0x1)
         {
@@ -15,12 +13,11 @@ void SendByte_Holtek(uint8_t temp)
         else
         {
             DTA_LOW();
-        }
+        }        
+        CLK_LOW();        
+        delayMicroseconds(2);
+        CLK_HIGH();        
         temp >>= 1;
-        CLK_LOW();
-        delayMicroseconds(2);
-        CLK_HIGH();
-        delayMicroseconds(2);
     }
 }
 /***********************************************************/
@@ -116,7 +113,7 @@ void SendPreamble_Holtek(uint32_t bits)
 void ReadFile_Holtek(uint32_t img_size)
 {
     uint8_t temp;
-    total_counter = 0;
+    uint16_t total_counter = 0;
     DTA_INPUT();
     while(++total_counter <= img_size)
     {
@@ -351,21 +348,35 @@ void EreaseFullChip_Holtek(void)
     delayMicroseconds(50);
 }
 /***********************************************************/
-bool WriteCalibration_Holtek(void)
+bool WriteCalibration_Holtek(Device_Type_t device)
 {
     uint8_t temp;
     SendData_Holtek(EraseStep1);
     SendPreamble_Holtek(1UL << 19);
     SendByte_Holtek(B00000000);
     SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00100000);// ??
+    if(device == BS86D20A)
+    {
+        SendByte_Holtek(B00100000);// ??
+    }
+    else  //if(device==BS66F360)
+    {
+        SendByte_Holtek(B10000000);// ??
+    }
     SendByte_Holtek(B00010101);
     SendByte_Holtek(B00000000);
     SendByte_Holtek(B00101010);
     SendByte_Holtek(B00000000);
     SendByte_Holtek(B00111111);
     TwoBitSlow_Holtek_W();
-    SendByte_Holtek(B10110001);// ??
+    if(device == BS86D20A)
+    {        
+        SendByte_Holtek(B10110001);// ??
+    }
+    else  //if(device==BS66F360)
+    {
+        SendByte_Holtek(B00010010);// ??
+    }
     SendByte_Holtek(B00000111);
     SendByte_Holtek(B00000000);
     SendByte_Holtek(B00010010);
@@ -378,7 +389,14 @@ bool WriteCalibration_Holtek(void)
     SendByte_Holtek(B00111000);
     SendByte_Holtek(B00000000);
     SendByte_Holtek(B00101101);
-    SendByte_Holtek(B00000000);
+    if(device == BS86D20A)
+    {
+        SendByte_Holtek(B00000000);
+    }
+    else  //if(device==BS66F360)
+    {
+        SendByte_Holtek(B00000010);
+    }
     SendByte_Holtek(B00010010);
     SendByte_Holtek(B00000000);
     SendByte_Holtek(B00000111);
@@ -414,9 +432,23 @@ bool WriteCalibration_Holtek(void)
     SendByte_Holtek(B00000000);
     SendByte_Holtek(B00000000);
     SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00000010);
+    if(device == BS86D20A)
+    {
+        SendByte_Holtek(B00000010);
+    }
+    else  //if(device==BS66F360)
+    {
+        SendByte_Holtek(B00111110);
+    }
     SendByte_Holtek(B00000000);
-    SendByte_Holtek(B00111101);
+    if(device == BS86D20A)
+    {
+        SendByte_Holtek(B00111101);
+    }
+    else  //if(device==BS66F360)
+    {
+        SendByte_Holtek(B00000001);
+    }
     SendByte_Holtek(B00000000);
     TwoBitSlow_Holtek_W();
     SendByte_Holtek(B00000000);
@@ -462,7 +494,7 @@ bool WriteCalibration_Holtek(void)
     return true;
 }
 /***********************************************************/
-bool WriteOptions_Holtek(void)
+bool ReadCalibration_Holtek(void)
 {
     uint8_t temp;
     CLK_LOW();
