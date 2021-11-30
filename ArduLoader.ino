@@ -32,21 +32,22 @@
 
 #define CLK_HIGH()  (FastGPIO::Pin<CLK_PIN>::setOutputValueHigh())
 #define CLK_LOW()  (FastGPIO::Pin<CLK_PIN>::setOutputValueLow())
-
 #define DTA_HIGH()  (FastGPIO::Pin<DTA_PIN>::setOutputValueHigh())
 #define DTA_LOW()  (FastGPIO::Pin<DTA_PIN>::setOutputValueLow())
 #define DTA_READ() (FastGPIO::Pin<DTA_PIN>::isInputHigh())
-#define DTA_INPUT() (pinMode(DTA_PIN, INPUT_PULLUP))//(FastGPIO::Pin<DTA_PIN>::setInput())
-#define DTA_OUTPUT() (pinMode(DTA_PIN, OUTPUT))//(FastGPIO::Pin<DTA_PIN>::setOutputValue(0))
+#define CLK_READ() (FastGPIO::Pin<CLK_PIN>::isInputHigh())
+#define DTA_INPUT() (pinMode(DTA_PIN, INPUT_PULLUP))
+#define DTA_OUTPUT() (pinMode(DTA_PIN, OUTPUT))
+#define CLK_INPUT() (pinMode(CLK_PIN, INPUT_PULLUP))
+#define CLK_OUTPUT() (pinMode(CLK_PIN, OUTPUT))
+#define CLK_TOGGLE() (FastGPIO::Pin<CLK_PIN>::setOutputValueToggle())
+#define DTA_TOGGLE() (FastGPIO::Pin<DTA_PIN>::setOutputValueToggle())
 
 #define VCC_ON()  (FastGPIO::Pin<VCC_PIN>::setOutputValueHigh())
 #define VCC_OFF()  (FastGPIO::Pin<VCC_PIN>::setOutputValueLow())
 
 #define BEEP_ON()  (FastGPIO::Pin<BEEP_PIN>::setOutputValueHigh())
 #define BEEP_OFF()  (FastGPIO::Pin<BEEP_PIN>::setOutputValueLow())
-
-#define CLK_TOGGLE() (FastGPIO::Pin<CLK_PIN>::setOutputValueToggle())
-#define DTA_TOGGLE() (FastGPIO::Pin<DTA_PIN>::setOutputValueToggle())
 
 #define NOP()  __asm__ __volatile__ ("nop\n\t");
 
@@ -101,7 +102,7 @@ const char Key_Reg[] = BOOT_KEY;
 
 //---------------------------------
 extern const char WriteStart[], WriteSeperate[], WriteFinish[], WriteInitalize1[], WriteInitalize2[], WriteTestData[];
-extern const char ReadInitalize[], ReadSeperate[];
+extern const char ReadInit[], ReadInitalize[], ReadSeperate[];
 Led_State_t Led_State;
 Procces_State_t Procces_State;
 Stream_State_t Stream_State;
@@ -241,10 +242,18 @@ void TurnOn_Device(void)
 {
     pinMode(DTA_PIN, OUTPUT);
     pinMode(CLK_PIN, OUTPUT);
-    DTA_LOW();
-    CLK_LOW();
-    VCC_ON();
-    delay(VDD_ON_DELAY);
+    if(Parameters.holtek)
+    {
+        DTA_LOW();
+        CLK_LOW();
+        VCC_ON();
+        delay(VDD_ON_DELAY);
+    }
+    else
+    {
+        CLK_HIGH();
+        VCC_ON();
+    }
 }
 /***********************************************************/
 void TurnOff_Device(void)
@@ -304,6 +313,8 @@ void LoaderHandler(void)
                         TurnOff_Device();
                         TurnOn_Device();
                         WritePrepare_Holtek();
+                        Mtp_Header_Size = 0;
+                        Mtp_Header_Flag = false;
                     }
                     else
                     {
@@ -314,10 +325,8 @@ void LoaderHandler(void)
                         delay(30);
                         SendData_BYD(WriteStart);
                     }
-                    Total_Counter = 0;                    
-                    Mtp_Header_Size = 0;
+                    Total_Counter = 0;
                     byte_counter = 0;
-                    Mtp_Header_Flag = false;
                     crc.reset();
                     Burn_Stage = DATA_WRITE;
                     break;
@@ -328,7 +337,7 @@ void LoaderHandler(void)
                         if(Parameters.holtek)
                         {
                             if(Mtp_Header_Flag == false)
-                            {                                
+                            {
                                 MtpHeaderBuffer[Mtp_Header_Size] = temp;
                                 if(MtpHeaderBuffer[Mtp_Header_Size] == 0 && \
                                         MtpHeaderBuffer[Mtp_Header_Size - 1] == 0 && \
@@ -397,9 +406,9 @@ void LoaderHandler(void)
             break;
         case CHECK:
             TurnOn_Device();
+            crc.reset();
             if(Parameters.holtek)
             {
-                crc.reset();
                 byte_counter = 0;
                 while(byte_counter < Mtp_Header_Size)
                 {
@@ -415,8 +424,7 @@ void LoaderHandler(void)
             else
             {
                 SendPreamble_BYD();
-                SendData_BYD(ReadInitalize);
-                crc.reset();
+                SendData_BYD(ReadInit);
                 uint16_t total_counter = 0;
                 while(total_counter++ < Image_Size)
                 {
@@ -435,15 +443,18 @@ void LoaderHandler(void)
                 Led_State = LED_FAIL;
                 BeeperTimeout = BEEP_FAIL_PERIDOD;
             }
-            else if(ReadCalibration_Holtek() == true)
-            {
-                Led_State = LED_ON;
-                BeeperTimeout = BEEP_SUCCES_PERIDOD;
-            }
             else
             {
-                Led_State = LED_FAIL;
-                BeeperTimeout = BEEP_FAIL_PERIDOD;
+                if((Parameters.holtek) && (ReadCalibration_Holtek() == false))
+                {
+                    Led_State = LED_FAIL;
+                    BeeperTimeout = BEEP_FAIL_PERIDOD;
+                }
+                else
+                {
+                    Led_State = LED_ON;
+                    BeeperTimeout = BEEP_SUCCES_PERIDOD;
+                }
             }
             TurnOff_Device();
             Procces_State = IDLE;
@@ -507,14 +518,6 @@ void DataHandler(void)
                     if(Parameters.holtek)
                     {
                         Serial.println(F("Holtek"));
-                        // if(Image_Size <= 32768)
-                        // {
-                        //     Image_Size = 16384 + MTP_HEADER_SIZE;
-                        // }
-                        // else
-                        // {
-                        //     Image_Size = 32768 + MTP_HEADER_SIZE;
-                        // }
                     }
                     if(Parameters.Burn)
                     {

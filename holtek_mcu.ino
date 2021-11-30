@@ -13,10 +13,10 @@ void SendByte_Holtek(uint8_t temp)
         else
         {
             DTA_LOW();
-        }        
-        CLK_LOW();        
+        }
+        CLK_LOW();
         delayMicroseconds(2);
-        CLK_HIGH();        
+        CLK_HIGH();
         temp >>= 1;
     }
 }
@@ -370,7 +370,7 @@ bool WriteCalibration_Holtek(Device_Type_t device)
     SendByte_Holtek(B00111111);
     TwoBitSlow_Holtek_W();
     if(device == BS86D20A)
-    {        
+    {
         SendByte_Holtek(B10110001);// ??
     }
     else  //if(device==BS66F360)
