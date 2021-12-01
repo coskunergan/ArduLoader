@@ -486,18 +486,18 @@ bool ReadCalibration_Holtek(Device_Type_t device)
         TwoBitFast_Holtek();
     }
     CLK_LOW();
-    Serial.print(F("CheckSum:"));
-    Serial.println(temp, HEX);
+    //Serial.print(F("CheckSum:"));
+    //Serial.println(temp, HEX);
     if(device == BS86D20A)
     {
-        if(temp != 0x15)
+        if(temp != 0x8A)
         {
             return false;
         }
     }
     else
     {
-        if(temp != 0x15)
+        if(temp != 0xEA)
         {
             return false;
         }
