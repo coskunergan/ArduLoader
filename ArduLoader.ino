@@ -27,44 +27,45 @@
 #define LOAD_BLINK_PERIDOD  20  // 500mS
 #define BEEP_FAIL_PERIDOD   100 // 1S
 #define BEEP_SUCCES_PERIDOD 5   // 50mS
-#define RX_BUFFER_SIZE      64  // bytes
-#define CLK_PIN             3   // O-PIN
-#define DTA_PIN             2   // IO-PIN
+#define RX_BUFFER_SIZE      1024 // bytes 
+#define MTP_HEADER_BUFFER_SIZE  128 // bytes 
+#define CLK_PIN             2   // O-PIN
+#define DTA_PIN             3   // IO-PIN
 #define RED_LED_PIN         7   // O-PIN
 #define GREEN_LED_PIN       6   // O-PIN
 #define VCC_PIN             4   // O-PIN
 #define BEEP_PIN            5   // O-PIN
 #define BOOT_KEY            "BOOT"  // 4 Char String 
 #define BEEP_KEY            "Beep"  // 4 Char String 
+#define VDD_ON_DELAY        50
 //--------------------
 #define KEYBOARD_STREAM_TIMEOUT   2  // 20mS
 
 #define RED_LED_OFF()  (FastGPIO::Pin<RED_LED_PIN>::setOutputValueHigh())
 #define RED_LED_ON()  (FastGPIO::Pin<RED_LED_PIN>::setOutputValueLow())
-
 #define GREEN_LED_OFF()  (FastGPIO::Pin<GREEN_LED_PIN>::setOutputValueHigh())
 #define GREEN_LED_ON()  (FastGPIO::Pin<GREEN_LED_PIN>::setOutputValueLow())
-
 #define RED_LED_TOGGLE() (FastGPIO::Pin<RED_LED_PIN>::setOutputValueToggle())
 #define GREEN_LED_TOGGLE() (FastGPIO::Pin<GREEN_LED_PIN>::setOutputValueToggle())
 
 #define CLK_HIGH()  (FastGPIO::Pin<CLK_PIN>::setOutputValueHigh())
 #define CLK_LOW()  (FastGPIO::Pin<CLK_PIN>::setOutputValueLow())
-
 #define DTA_HIGH()  (FastGPIO::Pin<DTA_PIN>::setOutputValueHigh())
 #define DTA_LOW()  (FastGPIO::Pin<DTA_PIN>::setOutputValueLow())
 #define DTA_READ() (FastGPIO::Pin<DTA_PIN>::isInputHigh())
-#define DTA_INPUT() (pinMode(DTA_PIN, INPUT))//(FastGPIO::Pin<DTA_PIN>::setInput())
-#define DTA_OUTPUT() (pinMode(DTA_PIN, OUTPUT))//(FastGPIO::Pin<DTA_PIN>::setOutputValue(0))
+#define CLK_READ() (FastGPIO::Pin<CLK_PIN>::isInputHigh())
+#define DTA_INPUT() (pinMode(DTA_PIN, INPUT_PULLUP))
+#define DTA_OUTPUT() (pinMode(DTA_PIN, OUTPUT))
+#define CLK_INPUT() (pinMode(CLK_PIN, INPUT_PULLUP))
+#define CLK_OUTPUT() (pinMode(CLK_PIN, OUTPUT))
+#define CLK_TOGGLE() (FastGPIO::Pin<CLK_PIN>::setOutputValueToggle())
+#define DTA_TOGGLE() (FastGPIO::Pin<DTA_PIN>::setOutputValueToggle())
 
 #define VCC_ON()  (FastGPIO::Pin<VCC_PIN>::setOutputValueHigh())
 #define VCC_OFF()  (FastGPIO::Pin<VCC_PIN>::setOutputValueLow())
 
 #define BEEP_ON()  (FastGPIO::Pin<BEEP_PIN>::setOutputValueHigh())
 #define BEEP_OFF()  (FastGPIO::Pin<BEEP_PIN>::setOutputValueLow())
-
-#define CLK_TOGGLE() (FastGPIO::Pin<CLK_PIN>::setOutputValueToggle())
-#define DTA_TOGGLE() (FastGPIO::Pin<DTA_PIN>::setOutputValueToggle())
 
 #define NOP()  __asm__ __volatile__ ("nop\n\t");
 
@@ -82,6 +83,12 @@ typedef enum
     BURN,
     CHECK
 } Procces_State_t;
+
+typedef enum
+{
+    BS86D20A,
+    BS66F360
+} Device_Type_t;
 
 typedef enum
 {
@@ -105,6 +112,7 @@ typedef union
         unsigned Check: 1;
         unsigned Vddon: 1;
         unsigned Beepon: 1;
+        unsigned holtek: 1;
     };
 } Parameters_t;
 
@@ -113,7 +121,7 @@ const char Key_Beep[] = BEEP_KEY;
 
 //---------------------------------
 extern const char WriteStart[], WriteSeperate[], WriteFinish[], WriteInitalize1[], WriteInitalize2[], WriteTestData[];
-extern const char ReadInitalize[], ReadSeperate[];
+extern const char ReadInit[], ReadInitalize[], ReadSeperate[];
 Led_State_t Led_State;
 Procces_State_t Procces_State;
 Stream_State_t Stream_State;
@@ -122,6 +130,7 @@ Burn_Stage_t Burn_Stage;
 CRC32 crc;
 uint8_t BurnChapter;
 uint8_t RxBuffer[RX_BUFFER_SIZE];
+uint8_t MtpHeaderBuffer[MTP_HEADER_BUFFER_SIZE];
 uint8_t RxStart;
 uint8_t RxEnd;
 uint8_t BeeperTimeout;
@@ -129,8 +138,13 @@ uint8_t StreamTimeout;
 uint8_t LedTimeout;
 uint32_t Image_Size;
 uint32_t Crc32;
+uint32_t Total_Counter;
+uint32_t FileSize_Counter;
 uint8_t KeyboadStreamTimeout;
 uint8_t checksum;
+uint8_t Mtp_Header_Size;
+bool Mtp_Header_Flag;
+Device_Type_t Select_Device;
 /***********************************************************/
 /***********************************************************/
 /***********************************************************/
@@ -153,7 +167,7 @@ void KbdRptParser::OnKeyDown(uint8_t mod, uint8_t key)
         else if(c == 0x27)
         {
             c = 'I';
-        }        
+        }
         else if(c >= 97 && c <= 122)
         {
             c -= 32;
@@ -168,9 +182,31 @@ USB     Usb;
 HIDBoot<USB_HID_PROTOCOL_KEYBOARD>    HidKeyboard(&Usb);
 KbdRptParser Prs;
 /***********************************************************/
+uint16_t Sizeof_Buffer(void)
+{
+    if(RxEnd >= RxStart)
+    {
+        return (RxEnd - RxStart);
+    }
+    return ((RxEnd + RX_BUFFER_SIZE) - RxStart);
+}
+/***********************************************************/
+void Recovery_Buffer(uint16_t size)
+{
+    if(RxStart >= size)
+    {
+        RxStart -= size;
+    }
+    else
+    {
+        RxStart += RX_BUFFER_SIZE;
+        RxStart -= size;
+    }
+}
+/***********************************************************/
 bool Pop_Byte(uint8_t *byt)
 {
-    if(RxEnd - RxStart == 0)
+    if(RxEnd == RxStart)
     {
         return false;
     }
@@ -184,16 +220,21 @@ bool Pop_Byte(uint8_t *byt)
 /***********************************************************/
 void Push_Byte(uint8_t byt)
 {
-    if((RxEnd - RxStart) % RX_BUFFER_SIZE == (RX_BUFFER_SIZE - 1))
-    {
-        /* Avoid overflow */
-        return;
-    }
+    //if(((uint16_t)(RxEnd - RxStart)) % RX_BUFFER_SIZE == (RX_BUFFER_SIZE - 1))
+    //{
+    /* Avoid overflow */
+    //return;
+    //}
     RxBuffer[RxEnd] = byt;
     if(++RxEnd >= RX_BUFFER_SIZE)
     {
         RxEnd = 0;
     }
+}
+/***********************************************************/
+void Fifo_Flush(void)
+{
+    RxEnd = RxStart = 0;
 }
 /***********************************************************/
 void ISR_Time_Tick(void) // ISR per 10mS
@@ -236,7 +277,7 @@ void ISR_Time_Tick(void) // ISR per 10mS
     {
         case LED_OFF:
             RED_LED_OFF();
-            GREEN_LED_OFF();        
+            GREEN_LED_OFF();
             digitalWrite(LED_BUILTIN, LOW);
             break;
         case LED_SUCCES:
@@ -262,7 +303,7 @@ void ISR_Time_Tick(void) // ISR per 10mS
             {
                 LedTimeout = LOAD_BLINK_PERIDOD;
                 RED_LED_TOGGLE();
-                GREEN_LED_TOGGLE();                
+                GREEN_LED_TOGGLE();
                 digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
             }
             else
@@ -274,120 +315,41 @@ void ISR_Time_Tick(void) // ISR per 10mS
     //-----------------------
 }
 /***********************************************************/
-void SendPreamble(void)
+void TurnOn_Device(void)
 {
-    int i, j;
-    noInterrupts();
     pinMode(DTA_PIN, OUTPUT);
     pinMode(CLK_PIN, OUTPUT);
-    DTA_HIGH();
-    VCC_ON();
-    for(i = 0; i < 315; i++)
+    if(Parameters.holtek)
     {
-        DTA_TOGGLE(); // 750Hz
-        for(j = 0; j < 60; j++)
-        {
-            CLK_TOGGLE();
-            delayMicroseconds(12); // 45KHz
-        }
-    }
-    DTA_LOW();
-    for(j = 0; j < 120; j++)
-    {
-        CLK_TOGGLE();
-        delayMicroseconds(12); // 45KHz
-    }
-    CLK_LOW();
-    delay(1);
-    interrupts();
-}
-/***********************************************************/
-void SendData(const char *databuffer)
-{
-    int i;
-    char character;
-    do
-    {
+        DTA_LOW();
         CLK_LOW();
-        character = pgm_read_byte_near(databuffer + i);
-        if(character == '0')
-        {
-            DTA_LOW();
-            delayMicroseconds(2);
-            CLK_HIGH();
-        }
-        else if(character  == '1')
-        {
-            DTA_HIGH();
-            delayMicroseconds(2);
-            CLK_HIGH();
-        }
-        else
-        {
-            DTA_LOW();
-            delayMicroseconds(10);
-        }
-        i++;
-        delayMicroseconds(2);
+        VCC_ON();
+        delay(VDD_ON_DELAY);
     }
-    while(character != '\0');
-    DTA_LOW();
-    CLK_LOW();
-}
-/***********************************************************/
-void SendByte(uint8_t temp)
-{
-    uint8_t i;
-
-    for(i = 0; i < 8; i++)
+    else
     {
-        if(temp & 0x1)
-        {
-            DTA_HIGH();
-        }
-        else
-        {
-            DTA_LOW();
-        }
-        delayMicroseconds(2);
         CLK_HIGH();
-        temp >>= 1;
-        delayMicroseconds(2);
-        CLK_LOW();
+        VCC_ON();
     }
-    delayMicroseconds(2);
-    CLK_HIGH();
-    delayMicroseconds(2);
-    CLK_LOW();
-    DTA_LOW();
 }
 /***********************************************************/
-uint8_t ReadByte(void)
+void TurnOff_Device(void)
 {
-    uint8_t temp, i;
-    DTA_INPUT();
-    for(i = 0; i < 9; i++)
-    {
-        temp >>= 1;
-        CLK_HIGH();
-        if(DTA_READ())
-        {
-            temp |= 0x80;
-        }
-        delayMicroseconds(2);
-        CLK_LOW();
-        delayMicroseconds(2);
-    }
-    DTA_OUTPUT();
-    DTA_LOW();
-    return temp;
+    pinMode(DTA_PIN, INPUT);
+    pinMode(CLK_PIN, INPUT);
+    VCC_OFF();
+    Usb.Task();
+    delay(100);
+    Usb.Task();
+    delay(100);
+    Usb.Task();
+    delay(100);        
 }
 /***********************************************************/
 void LoaderHandler(void)
 {
     static uint8_t temp;
-    static uint8_t byte_counter;
-    static uint32_t total_counter;
+    static uint8_t byte_counter;    
 
     switch(Procces_State)
     {
@@ -418,51 +380,145 @@ void LoaderHandler(void)
             switch(Burn_Stage)
             {
                 case BEGIN:
-                    SendPreamble();
-                    SendData(WriteInitalize1);
-                    delay(32);
-                    SendData(WriteInitalize2);
-                    delay(30);
-                    SendData(WriteStart);
-                    total_counter = 0;
+                    TurnOn_Device();
+                    if(Parameters.holtek)
+                    {
+                        EreaseFullChip_Holtek();
+                        WriteCalibration_Holtek(Select_Device);
+                        TurnOff_Device();
+                        TurnOn_Device();
+                        WritePrepare_Holtek();
+                        Mtp_Header_Size = 0;
+                        Mtp_Header_Flag = false;
+                    }
+                    else
+                    {
+                        SendPreamble_BYD();
+                        SendData_BYD(WriteInitalize1);
+                        delay(32);
+                        SendData_BYD(WriteInitalize2);
+                        delay(30);
+                        SendData_BYD(WriteStart);
+                    }
+                    Total_Counter = 0;
                     byte_counter = 0;
                     crc.reset();
                     Burn_Stage = DATA_WRITE;
                     break;
                 case DATA_WRITE:
-                    if(Pop_Byte(&temp) == true)
+                    if(Pop_Byte(&temp))
                     {
-                        SendByte(temp);
-                        //delayMicroseconds(8);
                         crc.update(temp);
-                        if(++byte_counter >= 64)
+                        if(Parameters.holtek)
                         {
-                            byte_counter = 0;
-                            Usb.Task();
-                            SendData(WriteSeperate);
+                            if(Mtp_Header_Flag == false)
+                            {
+                                MtpHeaderBuffer[Mtp_Header_Size] = temp;
+                                if(MtpHeaderBuffer[Mtp_Header_Size] == 0 && \
+                                        MtpHeaderBuffer[Mtp_Header_Size - 1] == 0 && \
+                                        MtpHeaderBuffer[Mtp_Header_Size - 2] == 0 && \
+                                        MtpHeaderBuffer[Mtp_Header_Size - 3] == 0)
+                                {
+                                    Mtp_Header_Flag = true;
+                                    FileSize_Counter = (16384 * (Image_Size / 16384)) + Mtp_Header_Size;
+                                }
+                                byte_counter = 255;
+                                Mtp_Header_Size++;
+                            }
+                            else
+                            {
+                                if(Total_Counter < FileSize_Counter)
+                                {
+                                    SendByte_Holtek(temp);
+                                }
+                            }
+                            if(++byte_counter >= 64)
+                            {
+                                byte_counter = 0;
+                                TwoBitSlow_Holtek_W();
+                                Usb.Task();
+                            }
                         }
-                        total_counter++;
+                        else
+                        {
+                            SendByte_BYD(temp);
+                            //delayMicroseconds(8);
+                            if(++byte_counter >= 64)
+                            {
+                                byte_counter = 0;
+                                Usb.Task();
+                                SendData_BYD(WriteSeperate);
+                            }
+                        }
+                        Total_Counter++;
                     }
-                    else if(total_counter >= Image_Size)
+                    else if(Total_Counter >= Image_Size)
                     {
-                        while(byte_counter++ < 64)
+                        if(!Parameters.holtek)
                         {
-                            SendByte(0xFF); // padding
-                            delayMicroseconds(30);
+                            while(byte_counter++ < 64)
+                            {
+                                SendByte_BYD(0xFF); // padding
+                                delayMicroseconds(30);
+                            }
+                            SendData_BYD(WriteFinish);
                         }
-                        SendData(WriteFinish);
+                        TurnOff_Device();
                         StreamTimeout = 0;
-                        VCC_OFF();
-                        pinMode(DTA_PIN, INPUT);
-                        pinMode(CLK_PIN, INPUT);
-                        delay(500);
-                        Led_State = LED_SUCCES;
-                        Procces_State = IDLE;
+                        Serial.print(F("CRC_LOAD:"));
+                        Serial.println(crc.finalize(), HEX);
+                        if(Crc32 != crc.finalize())
+                        {
+                            Led_State = LED_FAIL;
+                            BeeperTimeout = BEEP_FAIL_PERIDOD;
+                            Parameters.Check = false;
+                        }
+                        else
+                        {
+                            Led_State = LED_SUCCES;
+                            Procces_State = IDLE;
+                        }
                     }
                     break;
             }
             break;
         case CHECK:
+            TurnOn_Device();
+            crc.reset();
+            if(Parameters.holtek)
+            {
+                byte_counter = 0;
+                while(byte_counter < Mtp_Header_Size)
+                {
+                    crc.update(MtpHeaderBuffer[byte_counter++]);
+                }
+                Usb.Task();
+                ReadChip_Holtek(16384 * (Image_Size / 16384));
+                Usb.Task();
+                Recovery_Buffer((Image_Size - Mtp_Header_Size) % 16384);
+                while(Pop_Byte(&temp))
+                {
+                    crc.update(temp);
+                }
+            }
+            else
+            {
+                SendPreamble_BYD();
+                SendData_BYD(ReadInit);
+                uint16_t total_counter = 0;
+                while(total_counter++ < Image_Size)
+                {
+                    temp = ReadByte_BYD();
+                    crc.update(temp);
+                    if((total_counter % 64) == 0)
+                    {
+                        Usb.Task();
+                        SendData_BYD(ReadSeperate);
+                    }
+                }
+            }
+            Serial.print(F("CRC_READ:"));
+            Serial.println(crc.finalize(), HEX);
             if(Crc32 != crc.finalize())
             {
                 Led_State = LED_FAIL;
@@ -471,21 +527,7 @@ void LoaderHandler(void)
             }
             else
             {
-                SendPreamble();
-                SendData(ReadInitalize);
-                crc.reset();
-                total_counter = 0;
-                while(total_counter++ < Image_Size)
-                {
-                    temp = ReadByte();
-                    crc.update(temp);
-                    if((total_counter % 64) == 0)
-                    {
-                        Usb.Task();
-                        SendData(ReadSeperate);
-                    }
-                }
-                if(Crc32 != crc.finalize())
+                if((Parameters.holtek) && (ReadCalibration_Holtek(Select_Device) == false))
                 {
                     Led_State = LED_FAIL;
                     BeeperTimeout = BEEP_FAIL_PERIDOD;
@@ -498,10 +540,7 @@ void LoaderHandler(void)
                     Serial.println(F("SUCCES"));
                 }
             }
-            VCC_OFF();
-            pinMode(DTA_PIN, INPUT);
-            pinMode(CLK_PIN, INPUT);
-            delay(500);
+            TurnOff_Device();
             Procces_State = IDLE;
             break;
     }
@@ -569,6 +608,18 @@ void DataHandler(void)
                     //Serial.println(Image_Size, DEC);
                     //Serial.print(F("CRC:"));
                     //Serial.println(Crc32, HEX);
+                    if(Parameters.holtek)
+                    {
+                        //Serial.println(F("Holtek"));
+                        if(Image_Size > 32768)
+                        {
+                            Select_Device = BS66F360;
+                        }
+                        else
+                        {
+                            Select_Device = BS86D20A;
+                        }
+                    }                    
                     if(Parameters.Burn)
                     {
                         Stream_State = DOWNLOADING;
@@ -614,7 +665,7 @@ void setup(void)
 
     GREEN_LED_ON();
     RED_LED_ON();
-    
+
     Serial.begin(115200);
     //Serial.println(F("Restart!\r\nV1.0\r\n\r\n\r\n"));
 
@@ -644,8 +695,8 @@ void setup(void)
 
     Stream_State = WAIT;
     Parameters.Beepon = true;
-    RxStart = RxEnd = 0;  
-    Procces_State = IDLE;  
+    RxStart = RxEnd = 0;
+    Procces_State = IDLE;
 }
 /***********************************************************/
 void loop(void)
