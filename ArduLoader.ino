@@ -465,8 +465,8 @@ void LoaderHandler(void)
                         }
                         TurnOff_Device();
                         StreamTimeout = 0;
-                        Serial.print(F("CRC_LOAD:"));
-                        Serial.println(crc.finalize(), HEX);
+                        //Serial.print(F("CRC_LOAD:"));
+                        //Serial.println(crc.finalize(), HEX);
                         if(Crc32 != crc.finalize())
                         {
                             Led_State = LED_FAIL;
@@ -517,8 +517,8 @@ void LoaderHandler(void)
                     }
                 }
             }
-            Serial.print(F("CRC_READ:"));
-            Serial.println(crc.finalize(), HEX);
+            //Serial.print(F("CRC_READ:"));
+            //Serial.println(crc.finalize(), HEX);
             if(Crc32 != crc.finalize())
             {
                 Led_State = LED_FAIL;
