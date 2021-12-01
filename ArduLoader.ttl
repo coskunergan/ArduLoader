@@ -6,7 +6,7 @@ timeout = 1
 
 getdir dir
 
-makepath path dir '/OUTPUT/GTM_SW_Project.mtp'
+makepath path dir '/OUTPUT/BinaryFile.bin'
 
 crc32file crc path
 if result = -1 then
@@ -62,8 +62,6 @@ mpause 300
 sendfile path 1
 
 endif
-
-mpause 3000
 
 closett
 

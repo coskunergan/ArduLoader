@@ -348,7 +348,7 @@ void EreaseFullChip_Holtek(void)
     delayMicroseconds(50);
 }
 /***********************************************************/
-bool WriteCalibration_Holtek(Device_Type_t device)
+void WriteCalibration_Holtek(Device_Type_t device)
 {
     uint8_t temp;
     SendData_Holtek(EraseStep1);
@@ -460,43 +460,12 @@ bool WriteCalibration_Holtek(Device_Type_t device)
     SendByte_Holtek(B11100000);
     SendByte_Holtek(B00011010);
     TwoBitSlow_Holtek_W();
-    delayMicroseconds(100);
     CLK_LOW();
-    DTA_LOW();
-    delayMicroseconds(300);
-    SendData_Holtek(ReadStep1);
-    SendPreamble_Holtek(0);
-    DTA_INPUT();
-    for(int i = 0; i < 8; i++)
-    {
-        ReadByte_Holtek();
-        ReadByte_Holtek();
-        ReadByte_Holtek();
-        ReadByte_Holtek();
-        ReadByte_Holtek();
-        if(i == 3)
-        {
-            temp = ReadByte_Holtek();
-        }
-        else
-        {
-            ReadByte_Holtek();
-        }
-        ReadByte_Holtek();
-        ReadByte_Holtek();
-        TwoBitFast_Holtek();
-    }
-    CLK_LOW();
-    if(temp != 0x15)
-    {
-        return false;
-    }
-    return true;
 }
 /***********************************************************/
-bool ReadCalibration_Holtek(void)
+bool ReadCalibration_Holtek(Device_Type_t device)
 {
-    uint8_t temp;
+    uint8_t temp = 0x5A;
     CLK_LOW();
     DTA_LOW();
     delayMicroseconds(300);
@@ -505,27 +474,33 @@ bool ReadCalibration_Holtek(void)
     DTA_INPUT();
     for(int i = 0; i < 8; i++)
     {
-        ReadByte_Holtek();
-        ReadByte_Holtek();
-        ReadByte_Holtek();
-        ReadByte_Holtek();
-        ReadByte_Holtek();
-        if(i == 3)
-        {
-            temp = ReadByte_Holtek();
-        }
-        else
-        {
-            ReadByte_Holtek();
-        }
-        ReadByte_Holtek();
-        ReadByte_Holtek();
+        temp ^= ReadByte_Holtek();
+        temp ^= ReadByte_Holtek();
+        temp ^= ReadByte_Holtek();
+        temp ^= ReadByte_Holtek();
+        temp ^= ReadByte_Holtek();
+        temp ^= ReadByte_Holtek();
+        temp ^= ReadByte_Holtek();
+        temp ^= ReadByte_Holtek();
+        temp ^= ReadByte_Holtek();
         TwoBitFast_Holtek();
     }
     CLK_LOW();
-    if(temp != 0x15)
+    // Serial.print(F("CheckSum:"));
+    // Serial.println(temp, HEX);
+    if(device == BS86D20A)
     {
-        return false;
+        if(temp != 0x8A)
+        {
+            return false;
+        }
+    }
+    else
+    {
+        if(temp != 0xEA)
+        {
+            return false;
+        }
     }
     return true;
 }

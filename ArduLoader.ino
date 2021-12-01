@@ -123,6 +123,7 @@ uint32_t Total_Counter;
 uint32_t FileSize_Counter;
 uint8_t Mtp_Header_Size;
 bool Mtp_Header_Flag;
+Device_Type_t Select_Device;
 /***********************************************************/
 /***********************************************************/
 /***********************************************************/
@@ -266,7 +267,7 @@ void TurnOff_Device(void)
 /***********************************************************/
 void LoaderHandler(void)
 {
-    static uint8_t byte_counter;
+    static uint8_t byte_counter;    
     uint8_t temp;
 
     switch(Procces_State)
@@ -302,14 +303,7 @@ void LoaderHandler(void)
                     if(Parameters.holtek)
                     {
                         EreaseFullChip_Holtek();
-                        if(Image_Size > 32768)
-                        {
-                            WriteCalibration_Holtek(BS66F360);
-                        }
-                        else
-                        {
-                            WriteCalibration_Holtek(BS86D20A);
-                        }
+                        WriteCalibration_Holtek(Select_Device);
                         TurnOff_Device();
                         TurnOn_Device();
                         WritePrepare_Holtek();
@@ -445,7 +439,7 @@ void LoaderHandler(void)
             }
             else
             {
-                if((Parameters.holtek) && (ReadCalibration_Holtek() == false))
+                if((Parameters.holtek) && (ReadCalibration_Holtek(Select_Device) == false))
                 {
                     Led_State = LED_FAIL;
                     BeeperTimeout = BEEP_FAIL_PERIDOD;
@@ -518,6 +512,14 @@ void DataHandler(void)
                     if(Parameters.holtek)
                     {
                         Serial.println(F("Holtek"));
+                        if(Image_Size > 32768)
+                        {
+                            Select_Device = BS66F360;
+                        }
+                        else
+                        {
+                            Select_Device = BS86D20A;
+                        }
                     }
                     if(Parameters.Burn)
                     {
