@@ -22,7 +22,7 @@
 //------------------------
 
 //------ Config ------
-#define STREAM_TIMEOUT      50  // 500mS
+#define STREAM_TIMEOUT      75  // 750mS
 #define FAIL_BLINK_PERIDOD  5   // 50mS
 #define LOAD_BLINK_PERIDOD  20  // 500mS
 #define BEEP_FAIL_PERIDOD   100 // 1S
@@ -37,7 +37,8 @@
 #define BEEP_PIN            5   // O-PIN
 #define BOOT_KEY            "BOOT"  // 4 Char String 
 #define BEEP_KEY            "Beep"  // 4 Char String 
-#define VDD_ON_DELAY        50
+#define VDD_ON_DELAY        30
+#define VDD_TURN_OFF_DELAY  300 // 3sn
 //--------------------
 #define KEYBOARD_STREAM_TIMEOUT   2  // 20mS
 
@@ -113,6 +114,7 @@ typedef union
         unsigned Vddon: 1;
         unsigned Beepon: 1;
         unsigned holtek: 1;
+        unsigned VddTurnOff: 1;
     };
 } Parameters_t;
 
@@ -131,8 +133,8 @@ CRC32 crc;
 uint8_t BurnChapter;
 uint8_t RxBuffer[RX_BUFFER_SIZE];
 uint8_t MtpHeaderBuffer[MTP_HEADER_BUFFER_SIZE];
-uint8_t RxStart;
-uint8_t RxEnd;
+uint16_t RxStart;
+uint16_t RxEnd;
 uint8_t BeeperTimeout;
 uint8_t StreamTimeout;
 uint8_t LedTimeout;
@@ -144,6 +146,7 @@ uint8_t KeyboadStreamTimeout;
 uint8_t checksum;
 uint8_t Mtp_Header_Size;
 bool Mtp_Header_Flag;
+uint16_t VddTurnOff_Timer;
 Device_Type_t Select_Device;
 /***********************************************************/
 /***********************************************************/
@@ -272,6 +275,14 @@ void ISR_Time_Tick(void) // ISR per 10mS
             BEEP_ON();
         }
     }
+    //-----------------------
+    if(VddTurnOff_Timer > 0)
+    {
+        if(--VddTurnOff_Timer == 0)
+        {
+            Parameters.Vddon = false;
+        }
+    }       
     //-----------------------
     switch(Led_State)
     {
@@ -472,11 +483,12 @@ void LoaderHandler(void)
                             Led_State = LED_FAIL;
                             BeeperTimeout = BEEP_FAIL_PERIDOD;
                             Parameters.Check = false;
+                            Parameters.Vddon = false;
                         }
                         else
                         {
                             Led_State = LED_SUCCES;
-                            Procces_State = IDLE;
+                            Procces_State = IDLE;                            
                         }
                     }
                     break;
@@ -523,6 +535,7 @@ void LoaderHandler(void)
             {
                 Led_State = LED_FAIL;
                 BeeperTimeout = BEEP_FAIL_PERIDOD;
+                Parameters.Vddon = false;
                 Serial.println(F("ERROR"));
             }
             else
@@ -531,6 +544,7 @@ void LoaderHandler(void)
                 {
                     Led_State = LED_FAIL;
                     BeeperTimeout = BEEP_FAIL_PERIDOD;
+                    Parameters.Vddon = false;
                     Serial.println(F("ERROR"));
                 }
                 else
@@ -538,9 +552,13 @@ void LoaderHandler(void)
                     Led_State = LED_SUCCES;
                     BeeperTimeout = BEEP_SUCCES_PERIDOD;
                     Serial.println(F("SUCCES"));
+                    if(Parameters.VddTurnOff)
+                    {
+                        VddTurnOff_Timer = VDD_TURN_OFF_DELAY;
+                    }                    
                 }
             }
-            TurnOff_Device();
+            TurnOff_Device();         
             Procces_State = IDLE;
             break;
     }
@@ -691,7 +709,7 @@ void setup(void)
     delay(200);
     HidKeyboard.SetReportParser(0, &Prs);
     GREEN_LED_OFF();
-    RED_LED_OFF();
+    //RED_LED_OFF();
 
     Stream_State = WAIT;
     Parameters.Beepon = true;

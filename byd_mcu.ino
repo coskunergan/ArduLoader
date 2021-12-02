@@ -97,14 +97,14 @@ uint8_t ReadByte_BYD(void)
     uint8_t temp, i;
     DTA_INPUT_BYD();
     for(i = 0; i < 9; i++)
-    {
-        temp >>= 1;
+    {        
         CLK_HIGH_BYD();
+        temp >>= 1;
         if(DTA_READ_BYD())
         {
             temp |= 0x80;
         }
-        delayMicroseconds(2);
+        //delayMicroseconds(2);
         CLK_LOW_BYD();
         delayMicroseconds(2);
     }
