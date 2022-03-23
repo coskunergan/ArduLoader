@@ -25,11 +25,11 @@
 #define MTP_HEADER_BUFFER_SIZE  128 // bytes 
 #define CLK_PIN             2   // O-PIN
 #define DTA_PIN             3   // IO-PIN
-#define RED_LED_PIN         7   // O-PIN
-#define GREEN_LED_PIN       6   // O-PIN
-#define VCC_PIN             4   // O-PIN
+#define VCC_PIN             4   // O-PIN 
 #define BEEP_PIN            5   // O-PIN
-#define SELECT_BUTTON_PIN   8   // I-PIN
+#define GREEN_LED_PIN       6   // O-PIN
+#define RED_LED_PIN         7   // O-PIN
+#define FW_SELECT_PIN_ARRAY  {A0,A1,A2,A3,A4,A5,8,9}
 #define START_BUTTON_PIN    12  // I-PIN
 #define BOOT_KEY            "BOOT"  // 4 Char String 
 #define BEEP_KEY            "Beep"  // 4 Char String 
@@ -114,6 +114,13 @@ typedef union
   };
 } Parameters_t;
 
+typedef enum
+{
+  PIN_LOW = 0,
+  PIN_HIGH,
+  PIN_FLOAT
+} PinState_t;
+
 const char Key_Reg[] = BOOT_KEY;
 const char Key_Beep[] = BEEP_KEY;
 
@@ -144,6 +151,7 @@ uint8_t Mtp_Header_Size;
 bool Mtp_Header_Flag;
 uint16_t VddTurnOff_Timer;
 Device_Type_t Select_Device;
+unsigned char select_fw;
 /***********************************************************/
 /***********************************************************/
 /***********************************************************/
@@ -623,8 +631,14 @@ void setup(void)
   pinMode(BEEP_PIN, OUTPUT);
   pinMode(RED_LED_PIN, OUTPUT);
   pinMode(GREEN_LED_PIN, OUTPUT);
-  pinMode(SELECT_BUTTON_PIN, INPUT_PULLUP);
   pinMode(START_BUTTON_PIN, INPUT_PULLUP);
+
+  const unsigned int pins[8] = FW_SELECT_PIN_ARRAY;
+
+  for (int i = 0; i < 8; i++)
+  {
+    pinMode(pins[i], INPUT_PULLUP);
+  }
 
   GREEN_LED_ON();
   RED_LED_ON();
@@ -649,65 +663,103 @@ void setup(void)
   Parameters.Beepon = true;
   RxStart = RxEnd = 0;
   Procces_State = IDLE;
+
+  PinState_t result;
+  unsigned char count = 0xFF;
+  select_fw = 0xFF;
+  while (count)
+  {
+    for (int i = 0; i < 8; i++)
+    {
+      result = Get_PinState(pins[i]);
+      if (result != PIN_FLOAT)
+      {
+        count &= ~(1 << i);
+        select_fw &= ~((unsigned char)result << i);
+      }
+    }
+  }
 }
 /***********************************************************/
+PinState_t Get_PinState(int pin)
+{
 #define PIN_DEBOUNCE_VALUE 5000
-unsigned char Get_Start_PinStatus(void)
-{
-  static int pin_count = PIN_DEBOUNCE_VALUE / 2;
+  static int pin_count[21];
+  static unsigned char first_step = true;
 
-  if (digitalRead(START_BUTTON_PIN))
+  if (first_step)
   {
-    if (pin_count < PIN_DEBOUNCE_VALUE)
+    first_step = false;
+    for (int i = 0; i < 21; i++ )
     {
-      pin_count++;
+      pin_count[i] = PIN_DEBOUNCE_VALUE / 2;
+    }
+  }
+  if (digitalRead(pin))
+  {
+    if (pin_count[pin] < PIN_DEBOUNCE_VALUE)
+    {
+      pin_count[pin]++;
     }
   }
   else
   {
-    if (pin_count > 0)
+    if (pin_count[pin] > 0)
     {
-      pin_count--;
+      pin_count[pin]--;
     }
   }
-  if (pin_count > (PIN_DEBOUNCE_VALUE / 10 ) * 9)
+  if (pin_count[pin] > (PIN_DEBOUNCE_VALUE / 10 ) * 9)
   {
-    return 1;
+    return PIN_HIGH;
   }
-  else if (pin_count < PIN_DEBOUNCE_VALUE  / 10)
+  else if (pin_count[pin] < PIN_DEBOUNCE_VALUE  / 10)
   {
-    return 0;
+    return PIN_LOW;
   }
-  return 2;
+  return PIN_FLOAT;
 }
 /***********************************************************/
-unsigned char Get_Select_PinStatus(void)
+void Send_Buff_WithChecksum(char* buff)
 {
-  static int pin_count = PIN_DEBOUNCE_VALUE / 2;
-
-  if (digitalRead(SELECT_BUTTON_PIN))
+  unsigned char checksum = 0;
+  while (*buff != '\0')
   {
-    if (pin_count < PIN_DEBOUNCE_VALUE)
-    {
-      pin_count++;
-    }
+    checksum ^= *buff;
+    Serial.print(*buff++);
+  }
+  if (checksum < 16)
+  {
+    Serial.print('0');
+  }
+  Serial.print((unsigned char)checksum, HEX);
+}
+/***********************************************************/
+void Send_Select_Fw(unsigned char sel)
+{
+  char buff[15] = "FSW0000";
+
+  if (sel & 0x80)
+  {
+    buff[11] = 'T';
+    buff[12] = 'K';
+    buff[13] = '\0';
   }
   else
   {
-    if (pin_count > 0)
-    {
-      pin_count--;
-    }
+    buff[11] = 'M';
+    buff[12] = 'T';
+    buff[13] = 'P';
+    buff[14] = '\0';
   }
-  if (pin_count > (PIN_DEBOUNCE_VALUE / 10 ) * 9)
-  {
-    return 1;
-  }
-  else if (pin_count < PIN_DEBOUNCE_VALUE  / 10)
-  {
-    return 0;
-  }
-  return 2;
+
+  sel &= ~0x80;
+  buff[7] = (sel / 100) + '0';
+  buff[8] = ((sel / 10) % 10) + '0';
+  buff[9] = (sel % 10) + '0';
+  buff[10] = '.';
+
+  Send_Buff_WithChecksum(buff);
 }
 /***********************************************************/
 void loop(void)
@@ -717,24 +769,11 @@ void loop(void)
   LoaderHandler();
   wdt_reset();
   //-----------------
-  unsigned char select = Get_Select_PinStatus();
-  if (Get_Start_PinStatus() == 2)
+  if (Get_PinState(START_BUTTON_PIN) == PIN_FLOAT)
   {
-    if (Get_Start_PinStatus() == 0)
+    if (Get_PinState(START_BUTTON_PIN) == PIN_LOW)
     {
-      switch (select)
-      {
-        case 0:
-          Serial.print("FW_01.MTP");
-          Serial.print((uint8_t)0x28, HEX);
-          break;
-        case 1:
-          Serial.print("FW_02.MTP");
-          Serial.print((uint8_t)0x2B, HEX);
-          break;
-        default:
-          break;
-      }
+      Send_Select_Fw(select_fw);
     }
   }
   //-----------------
