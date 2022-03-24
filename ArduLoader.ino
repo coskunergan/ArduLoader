@@ -248,7 +248,7 @@ void ISR_Time_Tick(void) // ISR per 10mS
   switch (Led_State)
   {
     case LED_OFF:
-      RED_LED_OFF();
+      RED_LED_ON();
       GREEN_LED_OFF();
       digitalWrite(LED_BUILTIN, LOW);
       break;
@@ -640,9 +640,6 @@ void setup(void)
     pinMode(pins[i], INPUT_PULLUP);
   }
 
-  GREEN_LED_ON();
-  RED_LED_ON();
-
   Serial.begin(115200);
   //Serial.println(F("Restart!\r\nV1.0\r\n\r\n\r\n"));
 
@@ -655,9 +652,6 @@ void setup(void)
   KeyboadStreamTimeout = checksum = 0;
 
   delay(200);
-
-  GREEN_LED_OFF();
-  //RED_LED_OFF();
 
   Stream_State = WAIT;
   Parameters.Beepon = true;
@@ -777,5 +771,14 @@ void loop(void)
     }
   }
   //-----------------
+}
+/***********************************************************/
+void serialEvent(void)
+{
+    while(Serial.available())
+    {
+        Push_Byte(Serial.read());
+    }
+    StreamTimeout = STREAM_TIMEOUT;
 }
 /***********************************************************/
