@@ -436,16 +436,19 @@ void LoaderHandler(void)
             {
                 Led_State = LED_FAIL;
                 BeeperTimeout = BEEP_FAIL_PERIDOD;
+                Serial.println("ERROR");
             }
             else
-            {
+            {              
                 if((Parameters.holtek) && (ReadCalibration_Holtek(Select_Device) == false))
                 {
+                    Serial.println("ERROR");
                     Led_State = LED_FAIL;
                     BeeperTimeout = BEEP_FAIL_PERIDOD;
                 }
                 else
                 {
+                    Serial.println("OK");
                     Led_State = LED_ON;
                     BeeperTimeout = BEEP_SUCCES_PERIDOD;
                 }
