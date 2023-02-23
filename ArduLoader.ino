@@ -29,7 +29,7 @@
 #define BEEP_PIN            5   // O-PIN
 #define GREEN_LED_PIN       6   // O-PIN
 #define RED_LED_PIN         7   // O-PIN
-#define FW_SELECT_PIN_ARRAY  {A0,A1,A2,A3,A4,A5,8,9}
+#define FW_SELECT_PIN_ARRAY  {A0,A1,A2,A3,A4,A5,8,9,10,11}
 #define START_BUTTON_PIN    12  // I-PIN
 #define BOOT_KEY            "BOOT"  // 4 Char String 
 #define BEEP_KEY            "Beep"  // 4 Char String 
@@ -151,7 +151,7 @@ uint8_t Mtp_Header_Size;
 bool Mtp_Header_Flag;
 uint16_t VddTurnOff_Timer;
 Device_Type_t Select_Device;
-unsigned char select_fw;
+unsigned int select_fw;
 /***********************************************************/
 /***********************************************************/
 /***********************************************************/
@@ -633,9 +633,9 @@ void setup(void)
   pinMode(GREEN_LED_PIN, OUTPUT);
   pinMode(START_BUTTON_PIN, INPUT_PULLUP);
 
-  const unsigned int pins[8] = FW_SELECT_PIN_ARRAY;
+  const unsigned int pins[10] = FW_SELECT_PIN_ARRAY;
 
-  for (int i = 0; i < 8; i++)
+  for (int i = 0; i < 10; i++)
   {
     pinMode(pins[i], INPUT_PULLUP);
   }
@@ -659,11 +659,11 @@ void setup(void)
   Procces_State = IDLE;
 
   PinState_t result;
-  unsigned char count = 0xFF;
-  select_fw = 0xFF;
+  unsigned int count = 0x3FF;
+  select_fw = 0x3FF;
   while (count)
   {
-    for (int i = 0; i < 8; i++)
+    for (int i = 0; i < 10; i++)
     {
       result = Get_PinState(pins[i]);
       if (result != PIN_FLOAT)
@@ -729,11 +729,11 @@ void Send_Buff_WithChecksum(char* buff)
   Serial.print((unsigned char)checksum, HEX);
 }
 /***********************************************************/
-void Send_Select_Fw(unsigned char sel)
+void Send_Select_Fw(unsigned int sel)
 {
   char buff[15] = "FSW0000";
 
-  if (sel & 0x80)
+  if (sel & 0x200)
   {
     buff[11] = 'T';
     buff[12] = 'K';
@@ -747,7 +747,7 @@ void Send_Select_Fw(unsigned char sel)
     buff[14] = '\0';
   }
 
-  sel &= ~0x80;
+  sel &= ~0x200;
   buff[7] = (sel / 100) + '0';
   buff[8] = ((sel / 10) % 10) + '0';
   buff[9] = (sel % 10) + '0';
