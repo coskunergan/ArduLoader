@@ -16,8 +16,8 @@
 
 //------ Config ------
 #define STREAM_TIMEOUT      75  // 750mS
-#define FAIL_BLINK_PERIDOD  5   // 50mS
-#define LOAD_BLINK_PERIDOD  50  // 500mS
+#define FAIL_BLINK_PERIDOD  10   // 100mS
+#define LOAD_BLINK_PERIDOD  35  // 350mS
 #define BEEP_FAIL_PERIDOD   100 // 1S
 #define BEEP_SUCCES_PERIDOD 5   // 50mS
 #define RX_BUFFER_SIZE      1024 // bytes 
@@ -95,6 +95,9 @@ typedef union
         unsigned Vddon: 1;
         unsigned Beepon: 1;
         unsigned holtek: 1;
+        unsigned succes_led: 1;
+        unsigned busy_led: 1;
+        unsigned fail_led: 1;
     };
 } Parameters_t;
 
@@ -216,8 +219,16 @@ void ISR_Time_Tick(void) // ISR per 10mS
         case LED_FAIL:
             if(LedTimeout == 0)
             {
+              if(!digitalRead(LED_BUILTIN))
+              {
+                 LedTimeout = FAIL_BLINK_PERIDOD / 4;
+                digitalWrite(LED_BUILTIN, 1);
+              }
+              else
+              {
                 LedTimeout = FAIL_BLINK_PERIDOD;
-                digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
+                digitalWrite(LED_BUILTIN, 0);
+              }
             }
             else
             {
@@ -534,6 +545,18 @@ void DataHandler(void)
                         StreamTimeout = 0;
                         Led_State = LED_ON;
                     }
+                    if(Parameters.succes_led)
+                    {
+                      Led_State = LED_ON;
+                    }
+                    if(Parameters.busy_led)
+                    {
+                      Led_State = LED_BUSY;
+                    }                    
+                    if(Parameters.fail_led)
+                    {
+                      Led_State = LED_FAIL;
+                    }                    
                     break;
             }
             byte_counter++;
